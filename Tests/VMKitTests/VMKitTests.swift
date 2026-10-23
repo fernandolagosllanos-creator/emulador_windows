@@ -25,6 +25,10 @@ final class QEMUCommandBuilderTests: XCTestCase {
         args.indices.filter { args[$0] == flag && $0 + 1 < args.count }.map { args[$0 + 1] }
     }
 
+    func testNameHasNoLinuxOnlySuboptions() {
+        XCTAssertEqual(values(makeBuilder().arguments(), after: "-name"), ["Windows 11"])
+    }
+
     func testUsesHVFAndResources() {
         let args = makeBuilder().arguments()
         XCTAssertEqual(values(args, after: "-accel"), ["hvf"])

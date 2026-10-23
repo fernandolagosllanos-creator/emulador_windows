@@ -41,7 +41,8 @@ public struct QEMUCommandBuilder {
         let e = Self.escape
         var args: [String] = []
 
-        args += ["-name", "\(e(config.name)),process=paralelo-\(config.shortID)"]
+        // Sin ",process=": esa subopción solo existe en Linux y QEMU falla en macOS.
+        args += ["-name", e(config.name)]
         args += ["-machine", "virt", "-accel", "hvf", "-cpu", "host"]
         args += ["-smp", "cpus=\(config.cpuCount)", "-m", "\(config.memoryMB)"]
         args += ["-rtc", "base=localtime"]
