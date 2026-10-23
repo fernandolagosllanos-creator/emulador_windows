@@ -9,15 +9,21 @@ BIN="$(swift build -c release --show-bin-path)"
 APP="build/Paralelo.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN/ParaleloApp" "$APP/Contents/MacOS/Paralelo"
+# Ojo: el sistema de archivos de macOS no distingue mayúsculas, así que la app y el CLI
+# no pueden llamarse "Paralelo" y "paralelo" en la misma carpeta.
+cp "$BIN/ParaleloApp" "$APP/Contents/MacOS/ParaleloApp"
 cp "$BIN/paralelo" "$APP/Contents/MacOS/paralelo"
+if [ "$(ls "$APP/Contents/MacOS" | wc -l)" -ne 2 ]; then
+    echo "Error: faltan ejecutables en $APP/Contents/MacOS" >&2
+    exit 1
+fi
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key><string>Paralelo</string>
+    <key>CFBundleExecutable</key><string>ParaleloApp</string>
     <key>CFBundleIdentifier</key><string>app.paralelo.Paralelo</string>
     <key>CFBundleName</key><string>Paralelo</string>
     <key>CFBundleDisplayName</key><string>Paralelo</string>
