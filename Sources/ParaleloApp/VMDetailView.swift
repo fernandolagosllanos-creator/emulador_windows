@@ -166,9 +166,8 @@ struct SnapshotSection: View {
 
     private func refresh() {
         guard let controller = model.controller(id) else { return }
-        Task.detached {
-            let list = (try? controller.snapshots()) ?? []
-            await MainActor.run { snapshots = list }
+        Task { @MainActor in
+            snapshots = await Task.detached { (try? controller.snapshots()) ?? [] }.value
         }
     }
 }
