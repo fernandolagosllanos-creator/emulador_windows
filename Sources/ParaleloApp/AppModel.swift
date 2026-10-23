@@ -47,7 +47,8 @@ final class AppModel: ObservableObject {
             for bundle in bundles {
                 result[bundle.configuration.id] = VMController(bundle: bundle, environment: environment).state()
             }
-            await MainActor.run { self.states = result }
+            let states = result
+            await MainActor.run { self.states = states }
         }
     }
 

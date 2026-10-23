@@ -143,7 +143,7 @@ public final class VMController: @unchecked Sendable {
     /// Apagado forzado (como desenchufar).
     public func forceStop() throws {
         guard let pid else { throw VMError.notRunning }
-        try? qmp().execute("quit")
+        _ = try? qmp().execute("quit")
         if !ProcessRunner.waitFor(timeout: 5, { !ProcessRunner.isAlive(pid: pid) }) {
             kill(pid, SIGKILL)
         }

@@ -36,7 +36,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# Firma ad-hoc para que macOS lo ejecute localmente.
+# Firma ad-hoc para que macOS lo ejecute localmente. Antes se quitan los atributos extendidos
+# (Finder, iCloud, cuarentena) porque codesign los rechaza.
+xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
 
 echo "Listo: $APP"

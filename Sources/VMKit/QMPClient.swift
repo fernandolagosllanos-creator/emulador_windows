@@ -69,6 +69,7 @@ public final class QMPClient {
     }
 
     /// Comando del monitor humano (HMP); se usa para savevm/loadvm/delvm.
+    @discardableResult
     public func humanMonitorCommand(_ line: String) throws -> String {
         let output = try execute("human-monitor-command", arguments: ["command-line": line]) as? String ?? ""
         if output.lowercased().contains("error") {
