@@ -6,8 +6,11 @@ cd "$(dirname "$0")/.."
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)"
 
-APP="build/Paralelo.app"
-rm -rf "$APP"
+# Se arma y firma fuera del repo: si está en Documentos/Escritorio con iCloud, macOS añade
+# atributos (FinderInfo) que hacen fallar a codesign.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+APP="$STAGE/Paralelo.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Ojo: el sistema de archivos de macOS no distingue mayúsculas, así que la app y el CLI
 # no pueden llamarse "Paralelo" y "paralelo" en la misma carpeta.
@@ -41,5 +44,10 @@ PLIST
 xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
 
-echo "Listo: $APP"
-echo "Cópialo a /Applications o ábrelo con: open $APP"
+mkdir -p build
+rm -rf build/Paralelo.app
+ditto --noextattr --norsrc "$APP" build/Paralelo.app
+codesign --verify build/Paralelo.app 2>/dev/null || echo "Aviso: la firma no se pudo verificar en build/ (la app debería abrir igual)."
+
+echo "Listo: build/Paralelo.app"
+echo "Cópialo a /Applications o ábrelo con: open build/Paralelo.app"
