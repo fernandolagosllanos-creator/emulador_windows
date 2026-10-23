@@ -13,7 +13,7 @@ public struct VMConfiguration: Codable, Equatable, Identifiable, Sendable {
     public var driversISO: String?
     /// Puerto del Mac (127.0.0.1) que se redirige al RDP (3389) de Windows.
     public var rdpPort: Int
-    /// Emula un TPM 2.0 con swtpm (Windows 11 lo exige salvo que se salte la comprobación).
+    /// Emula un TPM 2.0 con swtpm. Desactivado: ver `VMController.tpmSupported`.
     public var useTPM: Bool
     public var coherence: CoherenceSettings
     public var createdAt: Date
@@ -27,7 +27,7 @@ public struct VMConfiguration: Codable, Equatable, Identifiable, Sendable {
         installerISO: String? = nil,
         driversISO: String? = nil,
         rdpPort: Int = 33890,
-        useTPM: Bool = true,
+        useTPM: Bool = false,
         coherence: CoherenceSettings = CoherenceSettings(),
         createdAt: Date = Date()
     ) {

@@ -66,6 +66,13 @@ final class QEMUCommandBuilderTests: XCTestCase {
         XCTAssertTrue(values(builder.arguments(), after: "-drive").contains { $0.contains("id=cd2") })
     }
 
+    func testAutounattendBypassesTPMAndIsWellFormed() throws {
+        let xml = GuestTools.autounattend
+        XCTAssertTrue(xml.contains(#"HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck"#))
+        XCTAssertTrue(xml.contains("BypassNRO"))
+        XCTAssertNoThrow(try XMLDocument(xmlString: xml))
+    }
+
     func testGuestScriptEnablesRemoteApp() {
         XCTAssertTrue(GuestTools.setupScript.contains("fDisabledAllowList"))
         XCTAssertTrue(GuestTools.setupScript.contains("fDenyTSConnections"))

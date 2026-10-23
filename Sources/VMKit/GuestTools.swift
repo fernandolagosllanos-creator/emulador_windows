@@ -3,7 +3,35 @@ import Foundation
 /// "Herramientas de invitado": una ISO pequeña (unidad PARALELO en Windows) con el script que activa
 /// RDP y RemoteApp. Así no hace falta red ni carpetas compartidas para preparar Windows.
 public enum GuestTools {
+    /// Súbelo cuando cambie el contenido de la ISO (las VMs existentes la regeneran al arrancar).
+    public static let version = 2
     public static let setupScriptName = "setup-windows.ps1"
+
+    /// El instalador de Windows lee Autounattend.xml de cualquier unidad extraíble. Solo añade comandos:
+    /// salta las comprobaciones de TPM/Secure Boot/RAM (no hay TPM con HVF) y permite configurar
+    /// Windows sin internet (BypassNRO). El resto de la instalación sigue siendo interactiva.
+    public static let autounattend = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <settings pass="windowsPE">
+        <component name="Microsoft-Windows-Setup" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <RunSynchronous>
+            <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+            <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+            <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+          </RunSynchronous>
+        </component>
+      </settings>
+      <settings pass="specialize">
+        <component name="Microsoft-Windows-Deployment" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <RunSynchronous>
+            <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+          </RunSynchronous>
+        </component>
+      </settings>
+    </unattend>
+
+    """
 
     public static let setupScript = #"""
 # Prepara Windows 11 para Paralelo: escritorio remoto + RemoteApp (modo Coherence).
@@ -65,6 +93,7 @@ Write-Host ' - Reinicia Windows para aplicar todos los cambios.'
         var data = Data([0xEF, 0xBB, 0xBF])
         data.append(Data(text.utf8))
         try data.write(to: staging.appendingPathComponent(setupScriptName))
+        try autounattend.write(to: staging.appendingPathComponent("Autounattend.xml"), atomically: true, encoding: .utf8)
 
         try? FileManager.default.removeItem(at: destination)
         try ProcessRunner.check(hdiutil, [

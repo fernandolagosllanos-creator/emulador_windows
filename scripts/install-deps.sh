@@ -12,7 +12,7 @@ if ! command -v brew >/dev/null 2>&1; then
     exit 1
 fi
 
-brew install qemu swtpm
+brew install qemu
 
 if [ "$1" = "--freerdp" ]; then
     brew install freerdp

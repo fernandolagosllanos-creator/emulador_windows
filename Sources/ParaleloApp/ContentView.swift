@@ -71,7 +71,7 @@ struct MissingDependenciesView: View {
             Image(systemName: "shippingbox").font(.system(size: 40))
             Text("Falta QEMU").font(.title2)
             Text(message).foregroundStyle(.secondary)
-            Text("Instálalo con:  brew install qemu swtpm").font(.body.monospaced()).textSelection(.enabled)
+            Text("Instálalo con:  brew install qemu").font(.body.monospaced()).textSelection(.enabled)
             Button("Reintentar", action: retry)
         }
         .padding()

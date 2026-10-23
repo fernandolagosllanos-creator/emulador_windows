@@ -80,6 +80,10 @@ public final class VMController: @unchecked Sendable {
 
     // MARK: Ciclo de vida
 
+    /// tpm-tis-device hace fallar a QEMU con HVF en Apple Silicon (HV_BAD_ARGUMENT al mapear su memoria).
+    /// Mientras tanto Windows salta la comprobación de TPM con el autounattend.xml de las herramientas.
+    public static let tpmSupported = false
+
     /// Arranca la VM. Si hay ISO de instalación, por defecto arranca desde ella
     /// (el instalador espera una tecla y, si no se pulsa, sigue al disco).
     public func start(display: DisplayMode, bootFromInstaller: Bool? = nil) throws {
@@ -89,6 +93,11 @@ public final class VMController: @unchecked Sendable {
         for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.pidFile] {
             try? fm.removeItem(at: stale)
         }
+
+        // Log nuevo en cada arranque para que los errores mostrados sean solo de este intento.
+        let previousLog = bundle.logURL.appendingPathExtension("1")
+        try? fm.removeItem(at: previousLog)
+        try? fm.moveItem(at: bundle.logURL, to: previousLog)
 
         if !fm.fileExists(atPath: bundle.toolsISOURL.path) {
             _ = try? GuestTools.buildISO(at: bundle.toolsISOURL)
@@ -103,7 +112,7 @@ public final class VMController: @unchecked Sendable {
                 tpmSocket: tpm, toolsISO: toolsISO)
         }
 
-        if bundle.configuration.useTPM {
+        if bundle.configuration.useTPM && Self.tpmSupported {
             guard let swtpm = environment.swtpm else { throw VMError.dependencyMissing("swtpm") }
             try fm.createDirectory(at: bundle.tpmStateURL, withIntermediateDirectories: true)
             let tpm = try ProcessRunner.launch(swtpm, builder(nil).swtpmArguments(), log: bundle.logURL)

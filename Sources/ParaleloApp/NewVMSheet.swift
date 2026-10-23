@@ -13,7 +13,6 @@ struct NewVMSheet: View {
     @State private var cpus = min(4, ProcessInfo.processInfo.activeProcessorCount)
     @State private var memoryMB = 8192
     @State private var diskGB = 64
-    @State private var useTPM = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -25,9 +24,8 @@ struct NewVMSheet: View {
                 Stepper("CPU: \(cpus)", value: $cpus, in: 1...ProcessInfo.processInfo.activeProcessorCount)
                 MemoryPicker(memoryMB: $memoryMB)
                 Stepper("Disco: \(diskGB) GB", value: $diskGB, in: 32...2048, step: 16)
-                Toggle("TPM 2.0 emulado (requerido por Windows 11)", isOn: $useTPM)
             }
-            Text("Durante la instalación elige \"No tengo clave de producto\" y la edición Windows 11 Pro.")
+            Text("Durante la instalación elige \"No tengo clave de producto\" y la edición Windows 11 Pro. Las comprobaciones de TPM y Secure Boot se saltan solas.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
@@ -37,8 +35,7 @@ struct NewVMSheet: View {
                         name: name, cpuCount: cpus, memoryMB: memoryMB, diskSizeGB: diskGB,
                         installerISO: isoPath.isEmpty ? nil : isoPath,
                         driversISO: driversPath.isEmpty ? nil : driversPath,
-                        rdpPort: model.library.nextFreeRDPPort(),
-                        useTPM: useTPM)
+                        rdpPort: model.library.nextFreeRDPPort())
                     model.create(config)
                     dismiss()
                 }

@@ -7,7 +7,7 @@
 
 ## 2. Crear la VM
 
-En la app, pulsa **+**, elige las dos ISOs y deja 4 CPU, 8 GB de RAM y 64 GB de disco (o más). Mantén activado el TPM.
+En la app, pulsa **+**, elige las dos ISOs y deja 4 CPU, 8 GB de RAM y 64 GB de disco (o más).
 
 Desde la terminal:
 
@@ -25,7 +25,7 @@ paralelo create "Windows 11" --iso ~/Downloads/Win11_ARM64.iso --drivers ~/Downl
 
 ### Si el instalador dice "Este equipo no puede ejecutar Windows 11"
 
-Pulsa `Shift+F10` y escribe lo siguiente:
+No debería pasar: la unidad PARALELO trae un `Autounattend.xml` que salta las comprobaciones de TPM, Secure Boot y RAM. Si aun así aparece, pulsa `Shift+F10` y escribe lo siguiente:
 
 ```bat
 reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f
@@ -37,7 +37,7 @@ Cierra la consola, vuelve un paso atrás en el instalador y continúa.
 
 ### Configuración inicial sin red
 
-Como aún no hay driver de red, Windows puede pedir conexión a internet. Pulsa `Shift+F10` y escribe:
+Como aún no hay driver de red, Windows puede pedir conexión a internet. El `Autounattend.xml` ya activa la opción **"No tengo internet"**. Si no aparece, pulsa `Shift+F10` y escribe:
 
 ```bat
 OOBE\BYPASSNRO

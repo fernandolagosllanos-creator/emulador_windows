@@ -14,7 +14,8 @@ public struct VMBundle: Sendable {
     public var tpmStateURL: URL { url.appendingPathComponent("tpm", isDirectory: true) }
     public var logURL: URL { url.appendingPathComponent("qemu.log") }
     /// ISO de herramientas (unidad PARALELO en Windows) con setup-windows.ps1.
-    public var toolsISOURL: URL { url.appendingPathComponent("paralelo-tools.iso") }
+    /// El número de versión fuerza a regenerar la ISO cuando cambia su contenido.
+    public var toolsISOURL: URL { url.appendingPathComponent("paralelo-tools-v\(GuestTools.version).iso") }
     public var rdpDirectoryURL: URL { url.appendingPathComponent("rdp", isDirectory: true) }
 
     public var runtime: RuntimePaths { RuntimePaths(shortID: configuration.shortID) }

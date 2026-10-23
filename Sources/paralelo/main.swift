@@ -6,7 +6,7 @@ paralelo: gestor de máquinas virtuales Windows 11 ARM (QEMU + HVF)
 
 Uso:
   paralelo list
-  paralelo create <nombre> --iso <ruta.iso> [--cpus 4] [--ram 8192] [--disk 64] [--drivers <virtio-win.iso>] [--no-tpm]
+  paralelo create <nombre> --iso <ruta.iso> [--cpus 4] [--ram 8192] [--disk 64] [--drivers <virtio-win.iso>]
   paralelo start <vm> [--headless] [--no-installer]
   paralelo status|pause|resume|shutdown|kill <vm>
   paralelo set <vm> [--cpus N] [--ram MB] [--disk GB] [--user USUARIO] [--client windowsApp|freeRDP] [--eject-iso]
@@ -93,7 +93,7 @@ func run() throws {
         return
     }
     let command = raw.removeFirst()
-    let args = Arguments(raw, flagNames: ["headless", "no-installer", "no-tpm", "eject-iso"])
+    let args = Arguments(raw, flagNames: ["headless", "no-installer", "eject-iso"])
 
     switch command {
     case "list":
@@ -111,8 +111,7 @@ func run() throws {
             name: name,
             installerISO: URL(fileURLWithPath: iso).standardizedFileURL.path,
             driversISO: args.options["drivers"].map { URL(fileURLWithPath: $0).standardizedFileURL.path },
-            rdpPort: library.nextFreeRDPPort(),
-            useTPM: !args.flags.contains("no-tpm"))
+            rdpPort: library.nextFreeRDPPort())
         if let cpus = try args.int("cpus") { config.cpuCount = cpus }
         if let ram = try args.int("ram") { config.memoryMB = ram }
         if let disk = try args.int("disk") { config.diskSizeGB = disk }
