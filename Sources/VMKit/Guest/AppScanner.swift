@@ -47,9 +47,10 @@ public enum AppScanner {
             guard fields.count >= 6, fields[0] == "APP" else { continue }
             let name = fields[1].trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty, !fields[3].isEmpty, seen.insert(name.lowercased()).inserted else { continue }
+            let icon = Data(base64Encoded: fields[5].trimmingCharacters(in: .whitespaces))
             apps.append(DiscoveredApp(
                 name: name, appUserModelID: fields[2], program: fields[3], arguments: fields[4],
-                iconPNG: Data(base64Encoded: fields[5].trimmingCharacters(in: .whitespaces))))
+                iconPNG: icon?.isEmpty == false ? icon : nil))
         }
         return apps.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }

@@ -90,7 +90,7 @@ public final class VMController: @unchecked Sendable {
         guard !isRunning else { throw VMError.alreadyRunning }
         let fm = FileManager.default
         try runtime.prepare()
-        for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.pidFile] {
+        for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.vncSocket, runtime.pidFile] {
             try? fm.removeItem(at: stale)
         }
 

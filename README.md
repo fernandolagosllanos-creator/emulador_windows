@@ -14,7 +14,8 @@ No es un emulador escrito desde cero. Paralelo es una app nativa (SwiftUI) y un 
 | Iniciar, pausar, reanudar, apagar, forzar | QMP (protocolo de control de QEMU) |
 | Snapshots | Con la VM encendida guardan disco y memoria (`savevm`). Con la VM apagada, solo disco (`qemu-img snapshot`) |
 | Ajustes de CPU, RAM y disco | Editables con la VM apagada. El disco solo crece |
-| Escritorio completo | RDP a `127.0.0.1:<puerto>`, con resolución dinámica y portapapeles |
+| Pantalla de Windows en Paralelo | Ventana propia de Paralelo (VNC por un socket privado), con teclado español y ratón. Sirve también para instalar Windows |
+| Escritorio completo por RDP | RDP a `127.0.0.1:<puerto>`, con resolución dinámica y portapapeles |
 | **Coherence** | RDP RemoteApp: cada app de Windows se abre en su propia ventana del Mac |
 | Apps de Windows en el Dock | Mini-apps en `~/Applications/Paralelo Apps`, con el icono real de cada app, que arrancan la VM sin ventana y abren la app |
 | Lista automática de apps | Busca en Windows todo lo del menú Inicio (también apps de la Microsoft Store) con sus iconos, sin escribir rutas |
@@ -101,7 +102,7 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 ## Limitaciones
 
 - **Sin aceleración 3D.** No hay drivers gráficos 3D de QEMU para Windows ARM, así que los juegos y las apps 3D no van bien. Para juegos en Mac conviene usar CrossOver, Whisky o el Game Porting Toolkit de Apple.
-- **La consola de QEMU (`ramfb`) es de baja resolución.** Sirve para instalar Windows. Para el día a día usa **Escritorio** (RDP) o Coherence.
+- **La pantalla de la VM (`ramfb`) es básica:** resolución fija y sin portapapeles. Sirve para instalar y administrar Windows. Para el día a día usa **Escritorio RDP** o Coherence. En la pantalla, Comando es la tecla Windows: usa Control para los atajos de Windows (Control+C, Control+V…).
 - **Coherence muestra ventanas RDP.** Mientras están abiertas, las apps muestran en el Dock el icono del cliente RDP, no el suyo, no hay arrastrar y soltar entre Mac y Windows, y puede haber algún parpadeo al mover ventanas.
 - **Coherence exige Windows Pro** (Home no incluye servidor RDP) y un usuario con contraseña.
 - **Sin TPM.** El TPM emulado (`tpm-tis-device`) hace fallar a QEMU con HVF, así que Paralelo no lo usa: Windows 11 se instala igual porque la unidad PARALELO incluye un `Autounattend.xml` que salta esa comprobación. BitLocker y Windows Hello con TPM no están disponibles.
@@ -110,6 +111,5 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 
 ## Hoja de ruta
 
-- Consola integrada en la ventana de la app (VNC/SPICE) en lugar de la ventana de QEMU.
 - Apagado o suspensión limpios a través del canal de control.
 - Carpetas compartidas con virtio-fs.

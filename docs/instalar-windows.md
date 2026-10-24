@@ -17,7 +17,7 @@ paralelo create "Windows 11" --iso ~/Downloads/Win11_ARM64.iso --drivers ~/Downl
 
 ## 3. Instalación
 
-1. Pulsa **Iniciar**. Se abre la ventana de QEMU.
+1. Pulsa **Iniciar**. Se abre una ventana de Paralelo con la pantalla de la VM (haz clic dentro para usar el teclado).
 2. Cuando aparezca *Press any key to boot from CD or DVD...*, pulsa una tecla. Si se te pasa, apaga con **Forzar** y vuelve a iniciar.
 3. Elige idioma y, en la clave de producto, **"No tengo clave de producto"**.
 4. Elige **Windows 11 Pro**. Home no sirve para Coherence.
@@ -68,4 +68,4 @@ Ya en el escritorio de Windows:
 5. Pulsa **Buscar apps instaladas en Windows…** y elige las apps que quieras.
 6. Pulsa **Abrir** junto a una app, o **Crear apps en el Dock / Launchpad**.
 
-A partir de aquí puedes usar **Iniciar sin ventana** y trabajar solo con Coherence o con **Escritorio**.
+A partir de aquí puedes usar **Iniciar sin ventana** (en el menú de **Iniciar**) y trabajar solo con Coherence o con **Escritorio RDP**. **Pantalla** vuelve a mostrar la pantalla de la VM cuando la necesites.

@@ -70,6 +70,8 @@ public struct RuntimePaths: Sendable {
 
     public var qmpSocket: URL { directory.appendingPathComponent("qmp.sock") }
     public var tpmSocket: URL { directory.appendingPathComponent("tpm.sock") }
+    /// Pantalla de la VM por VNC, para verla dentro de Paralelo.
+    public var vncSocket: URL { directory.appendingPathComponent("vnc.sock") }
     public var pidFile: URL { directory.appendingPathComponent("qemu.pid") }
 
     public func prepare() throws {

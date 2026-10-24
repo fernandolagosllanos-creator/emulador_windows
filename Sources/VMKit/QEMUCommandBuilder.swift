@@ -1,9 +1,9 @@
 import Foundation
 
 public enum DisplayMode: String, Codable, Sendable {
-    /// Ventana de QEMU (Cocoa) con la consola de Windows; necesaria para instalar Windows.
+    /// Ventana propia de QEMU (Cocoa).
     case window
-    /// Sin ventana: se usa con el escritorio RDP o con Coherence.
+    /// Sin ventana de QEMU: la pantalla se ve dentro de Paralelo (VNC), por RDP o con Coherence.
     case headless
 }
 
@@ -59,6 +59,8 @@ public struct QEMUCommandBuilder {
         case .window: args += ["-display", "cocoa,show-cursor=on"]
         case .headless: args += ["-display", "none"]
         }
+        // Siempre hay pantalla VNC en un socket privado (carpeta 0700), para la ventana de Paralelo.
+        args += ["-vnc", "unix:\(e(runtime.vncSocket.path))"]
 
         // Disco: NVMe porque el instalador de Windows ARM lo reconoce sin drivers adicionales.
         let diskBoot = bootFromInstaller && config.installerISO != nil ? 2 : 0

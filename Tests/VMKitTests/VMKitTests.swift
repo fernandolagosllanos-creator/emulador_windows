@@ -82,6 +82,15 @@ final class QEMUCommandBuilderTests: XCTestCase {
         XCTAssertEqual(values(makeBuilder(display: .headless).arguments(), after: "-display"), ["none"])
     }
 
+    func testVNCOnPrivateSocket() {
+        for display in [DisplayMode.window, .headless] {
+            let vnc = values(makeBuilder(display: display).arguments(), after: "-vnc")
+            XCTAssertEqual(vnc.count, 1)
+            XCTAssertTrue(vnc[0].hasPrefix("unix:/tmp/paralelo-"))
+            XCTAssertTrue(vnc[0].hasSuffix("/abcdef12/vnc.sock"))
+        }
+    }
+
     func testQMPSocketUsesShortRuntimePath() {
         let qmp = values(makeBuilder().arguments(), after: "-qmp")
         XCTAssertEqual(qmp.count, 1)
@@ -261,5 +270,40 @@ final class ICNSTests: XCTestCase {
     func testRejectsNonStandardSizes() {
         XCTAssertNil(ICNS.make(png: fakePNG(size: 48)))
         XCTAssertNil(ICNS.make(png: Data("no es png".utf8)))
+    }
+}
+
+final class VNCTests: XCTestCase {
+    func testClientMessages() {
+        XCTAssertEqual(VNCMessages.setPixelFormatBGRA().count, 20)
+        XCTAssertEqual(VNCMessages.updateRequest(incremental: true, width: 1024, height: 768),
+                       [3, 1, 0, 0, 0, 0, 0x04, 0x00, 0x03, 0x00])
+        XCTAssertEqual(VNCMessages.pointerEvent(x: 300, y: 2, buttons: 1), [5, 1, 0x01, 0x2C, 0, 2])
+        XCTAssertEqual(VNCMessages.qemuKeyEvent(scancode: 0xB8, down: true),
+                       [255, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0xB8])
+        let encodings = VNCMessages.setEncodings([0, -223])
+        XCTAssertEqual(encodings, [2, 0, 0, 2, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0x21])
+    }
+
+    func testFramebufferBlitAndCopy() {
+        var fb = Framebuffer(width: 4, height: 3)
+        let red: [UInt8] = [0, 0, 255, 0]
+        fb.blit(red + red, x: 1, y: 0, width: 2, height: 1)
+        XCTAssertEqual(Array(fb.pixels[4..<8]), red)
+        XCTAssertEqual(Array(fb.pixels[0..<4]), [0, 0, 0, 0])
+        // Copia solapada hacia abajo: la fila 0 baja a la 1 y la 1 a la 2.
+        fb.copy(fromX: 0, fromY: 0, toX: 0, toY: 1, width: 4, height: 2)
+        XCTAssertEqual(Array(fb.pixels[(4 + 1) * 4..<(4 + 2) * 4]), red)
+        XCTAssertEqual(Array(fb.pixels[(8 + 1) * 4..<(8 + 2) * 4]), [0, 0, 0, 0])
+        XCTAssertEqual(fb.frame().pixels.count, 4 * 3 * 4)
+    }
+
+    func testKeyMap() {
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x00), 0x1E) // A
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x3D), 0xB8) // Opción derecha = AltGr
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x7E), 0xC8) // flecha arriba
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x0A, isISOKeyboard: true), 0x29)
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x32, isISOKeyboard: true), 0x56)
+        XCTAssertNil(KeyMap.scancode(macKeyCode: 0x3F)) // Fn
     }
 }

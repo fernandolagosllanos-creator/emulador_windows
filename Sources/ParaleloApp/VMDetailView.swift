@@ -39,20 +39,27 @@ struct VMDetailView: View {
             if model.busy.contains(id) { ProgressView().controlSize(.small) }
             switch state {
             case .stopped:
-                Button { model.perform(id) { try $0.start(display: .window) } } label: {
+                Menu {
+                    Button("Iniciar sin ventana") {
+                        model.perform(id) { try $0.start(display: .headless, bootFromInstaller: false) }
+                    }
+                    Button("Iniciar con la ventana de QEMU") { model.perform(id) { try $0.start(display: .window) } }
+                } label: {
                     Label("Iniciar", systemImage: "play.fill")
+                } primaryAction: {
+                    model.startWithScreen(id)
                 }
-                Button { model.perform(id) { try $0.start(display: .headless, bootFromInstaller: false) } } label: {
-                    Label("Iniciar sin ventana", systemImage: "play")
-                }
+                .fixedSize()
             case .running, .unknown:
-                Button { model.open(app: nil, in: id) } label: { Label("Escritorio", systemImage: "macwindow") }
+                Button { model.showScreen(id) } label: { Label("Pantalla", systemImage: "display") }
+                Button { model.open(app: nil, in: id) } label: { Label("Escritorio RDP", systemImage: "macwindow") }
                 Button { model.perform(id) { try $0.pause() } } label: { Label("Pausar", systemImage: "pause.fill") }
                 Button { model.perform(id) { try $0.shutdown() } } label: { Label("Apagar", systemImage: "power") }
                 Button(role: .destructive) { model.perform(id) { try $0.forceStop() } } label: {
                     Label("Forzar", systemImage: "bolt.slash")
                 }
             case .paused:
+                Button { model.showScreen(id) } label: { Label("Pantalla", systemImage: "display") }
                 Button { model.perform(id) { try $0.resume() } } label: { Label("Reanudar", systemImage: "play.fill") }
                 Button(role: .destructive) { model.perform(id) { try $0.forceStop() } } label: {
                     Label("Forzar", systemImage: "bolt.slash")

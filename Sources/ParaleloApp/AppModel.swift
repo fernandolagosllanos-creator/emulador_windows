@@ -135,6 +135,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Abre la ventana con la pantalla de Windows (se conecta sola cuando la VM arranca).
+    func showScreen(_ id: UUID) {
+        guard let bundle = bundle(id) else { return }
+        ScreenWindows.shared.show(bundle)
+    }
+
+    /// Arranca la VM sin la ventana de QEMU y muestra su pantalla en Paralelo.
+    func startWithScreen(_ id: UUID) {
+        showScreen(id)
+        perform(id) { try $0.start(display: .headless) }
+    }
+
     func discoverApps(in id: UUID) {
         notice = "Buscando apps instaladas en Windows…"
         perform(id, done: { [weak self] failed in
