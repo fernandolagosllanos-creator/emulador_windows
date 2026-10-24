@@ -56,7 +56,7 @@ struct ContentView: View {
     private func color(for state: VMState) -> Color {
         switch state {
         case .running: return .green
-        case .paused: return .orange
+        case .paused, .suspended: return .orange
         case .stopped, .unknown: return .secondary
         }
     }
@@ -71,7 +71,7 @@ struct MissingDependenciesView: View {
             Image(systemName: "shippingbox").font(.system(size: 40))
             Text("Falta QEMU").font(.title2)
             Text(message).foregroundStyle(.secondary)
-            Text("Instálalo con:  brew install qemu").font(.body.monospaced()).textSelection(.enabled)
+            Text("Instálalo con:  brew install qemu samba").font(.body.monospaced()).textSelection(.enabled)
             Button("Reintentar", action: retry)
         }
         .padding()

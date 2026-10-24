@@ -109,7 +109,9 @@ final class AppModel: ObservableObject {
     func delete(_ id: UUID) {
         guard let bundle = bundle(id) else { return }
         if state(id) != .stopped {
-            errorMessage = "Apaga la VM antes de eliminarla."
+            errorMessage = state(id) == .suspended
+                ? "La VM está suspendida: reanúdala y apágala, o descarta su estado, antes de eliminarla."
+                : "Apaga la VM antes de eliminarla."
             return
         }
         do {
@@ -145,6 +147,13 @@ final class AppModel: ObservableObject {
     func startWithScreen(_ id: UUID) {
         showScreen(id)
         perform(id) { try $0.start(display: .headless) }
+    }
+
+    func suspend(_ id: UUID) {
+        notice = "Guardando el estado de Windows… (con mucha RAM puede tardar un minuto)"
+        perform(id, done: { [weak self] failed in
+            self?.notice = failed ? nil : "Suspendida. Pulsa Reanudar para seguir donde estabas."
+        }) { try $0.suspend() }
     }
 
     func discoverApps(in id: UUID) {

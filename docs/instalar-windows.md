@@ -56,8 +56,10 @@ Ya en el escritorio de Windows:
    powershell -ExecutionPolicy Bypass -File E:\setup-windows.ps1
    ```
 
-3. Si te pide instalar OpenSSH Server, deja que termine (necesita internet). Al final muestra tu **usuario para Paralelo**: apúntalo.
-4. Reinicia Windows.
+3. Si te pide instalar OpenSSH Server, deja que termine (necesita internet; puede tardar 10 minutos). No hagas clic dentro de la consola mientras tanto: el título cambia a "Seleccionar" y el script se queda en pausa (pulsa Esc para seguir). Al final muestra tu **usuario para Paralelo**: apúntalo.
+4. Reinicia Windows. Tras iniciar sesión aparece la unidad **Z: (Mac)** con tu carpeta del Mac (si instalaste Samba en el Mac).
+
+Cuando Paralelo se actualice con una nueva versión de la unidad PARALELO, vuelve a ejecutar el script: no repite lo que ya está hecho.
 
 ## 5. Dejarla lista
 

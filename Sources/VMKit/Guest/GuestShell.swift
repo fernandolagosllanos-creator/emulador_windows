@@ -3,7 +3,7 @@ import Foundation
 /// Canal de control con Windows por SSH: OpenSSH Server, que activa setup-windows.ps1.
 /// Usa una clave propia de cada VM (su parte pública va en la ISO de herramientas) y el puerto
 /// `sshPort`, publicado solo en 127.0.0.1 del Mac.
-public struct GuestShell {
+public struct GuestShell: Sendable {
     public var bundle: VMBundle
 
     public init(bundle: VMBundle) {
@@ -57,8 +57,20 @@ public struct GuestShell {
         return banner.starts(with: Array("SSH-".utf8))
     }
 
+    /// Hay usuario, clave y Windows responde por SSH (sin esperar).
+    public var isAvailable: Bool {
+        !bundle.configuration.coherence.username.isEmpty
+            && FileManager.default.fileExists(atPath: bundle.sshKeyURL.path)
+            && Self.isReady(port: bundle.configuration.sshPort)
+    }
+
     /// Ejecuta un script de PowerShell (solo ASCII) en Windows y devuelve su salida estándar.
     public func runPowerShell(_ script: String) throws -> String {
+        try run(Self.powerShellCommand, input: Data(script.utf8))
+    }
+
+    /// Ejecuta un comando de cmd.exe en Windows; `input` llega por la entrada estándar.
+    public func run(_ command: String, input: Data? = nil) throws -> String {
         let config = bundle.configuration
         guard !config.coherence.username.isEmpty else {
             throw VMError.invalidConfiguration("escribe tu usuario de Windows en Coherence y pulsa Guardar")
@@ -68,12 +80,15 @@ public struct GuestShell {
         }
         guard Self.isReady(port: config.sshPort) else { throw Self.notConfigured }
 
-        let input = FileManager.default.temporaryDirectory
-            .appendingPathComponent("paralelo-\(UUID().uuidString).ps1")
-        try Data(script.utf8).write(to: input)
-        defer { try? FileManager.default.removeItem(at: input) }
+        var inputURL: URL?
+        if let input {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("paralelo-\(UUID().uuidString).in")
+            try input.write(to: url)
+            inputURL = url
+        }
+        defer { if let inputURL { try? FileManager.default.removeItem(at: inputURL) } }
 
-        let result = try ProcessRunner.run(Self.ssh, sshArguments(command: Self.powerShellCommand), input: input)
+        let result = try ProcessRunner.run(Self.ssh, sshArguments(command: command), input: inputURL)
         guard result.status == 0 else {
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if detail.contains("Permission denied") {

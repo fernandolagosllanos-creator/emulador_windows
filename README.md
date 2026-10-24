@@ -11,7 +11,10 @@ No es un emulador escrito desde cero. Paralelo es una app nativa (SwiftUI) y un 
 | Función | Cómo |
 |---|---|
 | Crear VM desde una ISO | Disco qcow2 que crece según se usa, UEFI (edk2). Las comprobaciones de TPM y Secure Boot se saltan solas con un `Autounattend.xml` |
-| Iniciar, pausar, reanudar, apagar, forzar | QMP (protocolo de control de QEMU) |
+| Iniciar, pausar, reanudar, apagar, forzar | QMP (protocolo de control de QEMU). **Apagar** le pide a Windows que se apague por el canal de control |
+| Suspender | Guarda el estado de Windows (memoria incluida) en el disco y cierra la VM; **Reanudar** sigue donde estaba |
+| Carpeta del Mac en Windows | Tu carpeta de inicio aparece como unidad **Z: (Mac)** en Windows, por el SMB integrado de QEMU (necesita `brew install samba`) |
+| Portapapeles | En la ventana de pantalla: lo copiado en el Mac se pega en Windows y al revés (texto) |
 | Snapshots | Con la VM encendida guardan disco y memoria (`savevm`). Con la VM apagada, solo disco (`qemu-img snapshot`) |
 | Ajustes de CPU, RAM y disco | Editables con la VM apagada. El disco solo crece |
 | Pantalla de Windows en Paralelo | Ventana propia de Paralelo (VNC por un socket privado), con teclado español y ratón. Sirve también para instalar Windows |
@@ -26,7 +29,7 @@ No es un emulador escrito desde cero. Paralelo es una app nativa (SwiftUI) y un 
 
 - Mac con Apple Silicon y macOS 14 o superior.
 - Xcode o Command Line Tools (para compilar).
-- Homebrew. Después, `scripts/install-deps.sh`, que instala `qemu`.
+- Homebrew. Después, `scripts/install-deps.sh`, que instala `qemu` y `samba` (para la carpeta compartida).
 - Para Coherence: **Windows App** de Microsoft (App Store) o FreeRDP (`scripts/install-deps.sh --freerdp`).
 - ISO de **Windows 11 ARM64**: <https://www.microsoft.com/software-download/windows11arm64>
 - Recomendado: ISO de drivers **virtio-win**, necesaria para la red: <https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso>
@@ -106,10 +109,11 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 - **Coherence muestra ventanas RDP.** Mientras están abiertas, las apps muestran en el Dock el icono del cliente RDP, no el suyo, no hay arrastrar y soltar entre Mac y Windows, y puede haber algún parpadeo al mover ventanas.
 - **Coherence exige Windows Pro** (Home no incluye servidor RDP) y un usuario con contraseña.
 - **Sin TPM.** El TPM emulado (`tpm-tis-device`) hace fallar a QEMU con HVF, así que Paralelo no lo usa: Windows 11 se instala igual porque la unidad PARALELO incluye un `Autounattend.xml` que salta esa comprobación. BitLocker y Windows Hello con TPM no están disponibles.
-- **Sin carpetas compartidas por virtio-fs.** La carpeta de inicio del Mac se comparte a través de RDP.
-- **Pendiente de verificar en hardware real:** snapshots con memoria (`savevm`) sobre HVF, y RemoteApp con Windows App en macOS. Si Windows App no abre la app suelta, usa FreeRDP.
+- **La carpeta del Mac llega por SMB, no por virtio-fs** (virtio-fs no existe en QEMU para macOS). Para el SMB interno de QEMU, `setup-windows.ps1` permite en Windows conexiones SMB de invitado sin firma; solo existen dentro de la red privada de la VM.
+- **El portapapeles de la ventana de pantalla solo copia texto** y se sincroniza al entrar y salir de la ventana. En Coherence y en el escritorio RDP el portapapeles lo gestiona RDP.
 
 ## Hoja de ruta
 
-- Apagado o suspensión limpios a través del canal de control.
-- Carpetas compartidas con virtio-fs.
+
+- Portapapeles con imágenes y archivos en la ventana de pantalla.
+- Arrastrar y soltar archivos del Mac a Windows.

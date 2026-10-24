@@ -9,6 +9,8 @@ Uso:
   paralelo create <nombre> --iso <ruta.iso> [--cpus 4] [--ram 8192] [--disk 64] [--drivers <virtio-win.iso>]
   paralelo start <vm> [--headless] [--no-installer]
   paralelo status|pause|resume|shutdown|kill <vm>
+  paralelo suspend <vm>                 Guarda el estado y apaga; "start" sigue donde estaba
+  paralelo discard-suspend <vm>         Olvida el estado suspendido
   paralelo set <vm> [--cpus N] [--ram MB] [--disk GB] [--user USUARIO] [--client windowsApp|freeRDP] [--eject-iso]
   paralelo snapshot list|create|restore|delete <vm> [nombre]
   paralelo desktop <vm>                 Escritorio completo de Windows por RDP
@@ -134,6 +136,8 @@ func run() throws {
     case "resume": try controller(try args.require(0, "la VM")).resume()
     case "shutdown": try controller(try args.require(0, "la VM")).shutdown()
     case "kill": try controller(try args.require(0, "la VM")).forceStop()
+    case "suspend": try controller(try args.require(0, "la VM")).suspend()
+    case "discard-suspend": try controller(try args.require(0, "la VM")).discardSuspendedState()
 
     case "set":
         let c = try controller(try args.require(0, "la VM"))

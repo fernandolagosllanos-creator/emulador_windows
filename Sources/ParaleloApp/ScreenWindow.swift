@@ -25,10 +25,16 @@ final class ScreenWindowController: NSWindowController, NSWindowDelegate {
     private let screen: VMScreenView
     private let onClose: () -> Void
     private var sizedToGuest = false
+    // Portapapeles: se envía el del Mac al entrar en la ventana y se trae el de Windows al salir.
+    private let clipboard: GuestClipboard
+    private let clipboardQueue = DispatchQueue(label: "Paralelo.portapapeles")
+    private var lastPushedChange = -1
+    private var lastPulled: String?
 
     init(bundle: VMBundle, onClose: @escaping () -> Void) {
         client = VNCClient(socketPath: bundle.runtime.vncSocket.path)
         screen = VMScreenView(client: client)
+        clipboard = GuestClipboard(shell: GuestShell(bundle: bundle))
         self.onClose = onClose
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
@@ -58,6 +64,8 @@ final class ScreenWindowController: NSWindowController, NSWindowDelegate {
         }
         client.start()
         window.makeFirstResponder(screen)
+        // Lo que ya estaba copiado en Windows no debe pisar el portapapeles del Mac.
+        pullClipboard(apply: false)
     }
 
     @available(*, unavailable)
@@ -80,8 +88,38 @@ final class ScreenWindowController: NSWindowController, NSWindowDelegate {
         onClose()
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        let pasteboard = NSPasteboard.general
+        guard pasteboard.changeCount != lastPushedChange else { return }
+        lastPushedChange = pasteboard.changeCount
+        guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
+        let clipboard = clipboard
+        clipboardQueue.async { try? clipboard.push(text) }
+    }
+
     func windowDidResignKey(_ notification: Notification) {
         screen.releaseAllKeys()
+        pullClipboard(apply: true)
+    }
+
+    private func pullClipboard(apply: Bool) {
+        let clipboard = clipboard
+        clipboardQueue.async { [weak self] in
+            guard let text = try? clipboard.pull() else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.receivedClipboard(text, apply: apply) }
+            }
+        }
+    }
+
+    private func receivedClipboard(_ text: String, apply: Bool) {
+        guard text != lastPulled else { return }
+        lastPulled = text
+        guard apply else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        lastPushedChange = pasteboard.changeCount
     }
 }
 

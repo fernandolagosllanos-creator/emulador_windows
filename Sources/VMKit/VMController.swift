@@ -1,13 +1,14 @@
 import Foundation
 
 public enum VMState: String, Sendable {
-    case stopped, running, paused, unknown
+    case stopped, running, paused, suspended, unknown
 
     public var label: String {
         switch self {
         case .stopped: return "Apagada"
         case .running: return "En ejecución"
         case .paused: return "En pausa"
+        case .suspended: return "Suspendida"
         case .unknown: return "Desconocido"
         }
     }
@@ -62,7 +63,7 @@ public final class VMController: @unchecked Sendable {
     public var isRunning: Bool { pid != nil }
 
     public func state() -> VMState {
-        guard isRunning else { return .stopped }
+        guard isRunning else { return isSuspended ? .suspended : .stopped }
         guard let status = try? qmp().execute("query-status") as? [String: Any],
               let value = status["status"] as? String
         else { return .unknown }
@@ -74,8 +75,17 @@ public final class VMController: @unchecked Sendable {
         }
     }
 
-    private func qmp() throws -> QMPClient {
-        try QMPClient(socketPath: runtime.qmpSocket.path)
+    /// `timeout` alto para savevm/loadvm, que pueden tardar con mucha RAM.
+    private func qmp(timeout: TimeInterval = 5) throws -> QMPClient {
+        try QMPClient(socketPath: runtime.qmpSocket.path, timeout: timeout)
+    }
+
+    /// Snapshot interno con el estado de una VM suspendida (no aparece en la lista de snapshots).
+    public static let suspendSnapshotName = "paralelo-suspendida"
+
+    /// La VM se suspendió: el próximo arranque continúa donde estaba.
+    public var isSuspended: Bool {
+        FileManager.default.fileExists(atPath: bundle.suspendedMarkerURL.path)
     }
 
     // MARK: Ciclo de vida
@@ -104,12 +114,19 @@ public final class VMController: @unchecked Sendable {
         }
         let toolsISO = fm.fileExists(atPath: bundle.toolsISOURL.path) ? bundle.toolsISOURL : nil
 
+        let resuming = isSuspended
+        let shared = bundle.configuration.coherence.shareHomeFolder && environment.smbd != nil
+            ? fm.homeDirectoryForCurrentUser : nil
         var tpmSocket: URL?
         let builder = { (tpm: URL?) in
-            QEMUCommandBuilder(
+            var b = QEMUCommandBuilder(
                 bundle: self.bundle, environment: self.environment, display: display,
-                bootFromInstaller: bootFromInstaller ?? (self.bundle.configuration.installerISO != nil),
+                // Al reanudar, la configuración de dispositivos debe ser la misma que al suspender.
+                bootFromInstaller: resuming ? false : bootFromInstaller ?? (self.bundle.configuration.installerISO != nil),
                 tpmSocket: tpm, toolsISO: toolsISO)
+            b.sharedFolder = shared
+            b.loadSnapshot = resuming ? Self.suspendSnapshotName : nil
+            return b
         }
 
         if bundle.configuration.useTPM && Self.tpmSupported {
@@ -131,6 +148,37 @@ public final class VMController: @unchecked Sendable {
             throw VMError.commandFailed("QEMU terminó al arrancar:\n\(logTail())")
         }
         guard ready else { throw VMError.timeout("QEMU no respondió por QMP") }
+        if resuming {
+            // Ya cargado: el estado guardado deja de hacer falta.
+            _ = try? qmp(timeout: 120).humanMonitorCommand("delvm \(Self.suspendSnapshotName)")
+            try? fm.removeItem(at: bundle.suspendedMarkerURL)
+        }
+    }
+
+    /// Guarda el estado completo (memoria incluida) en el disco y cierra QEMU, como "Suspender" en Parallels.
+    /// El siguiente arranque continúa exactamente donde estaba.
+    public func suspend() throws {
+        guard let pid else { throw VMError.notRunning }
+        try qmp().execute("stop")
+        do {
+            try qmp(timeout: 900).humanMonitorCommand("savevm \(Self.suspendSnapshotName)")
+        } catch {
+            _ = try? qmp().execute("cont")
+            throw error
+        }
+        try Data().write(to: bundle.suspendedMarkerURL)
+        _ = try? qmp().execute("quit")
+        if !ProcessRunner.waitFor(timeout: 30, { !ProcessRunner.isAlive(pid: pid) }) {
+            kill(pid, SIGKILL)
+        }
+    }
+
+    /// Olvida el estado suspendido: el próximo arranque será un arranque normal de Windows.
+    public func discardSuspendedState() throws {
+        guard !isRunning else { throw VMError.alreadyRunning }
+        _ = try? ProcessRunner.run(environment.qemuImg, ["snapshot", "-d", Self.suspendSnapshotName, bundle.diskURL.path])
+        _ = try? ProcessRunner.run(environment.qemuImg, ["snapshot", "-d", Self.suspendSnapshotName, bundle.efiVarsURL.path])
+        try? FileManager.default.removeItem(at: bundle.suspendedMarkerURL)
     }
 
     public func pause() throws {
@@ -143,9 +191,12 @@ public final class VMController: @unchecked Sendable {
         try qmp().execute("cont")
     }
 
-    /// Apagado ordenado: equivale a pulsar el botón de encendido (Windows se apaga solo).
+    /// Apagado ordenado. Con el canal de control se le pide a Windows que se apague (lo más fiable);
+    /// si no, equivale a pulsar el botón de encendido.
     public func shutdown() throws {
         guard isRunning else { throw VMError.notRunning }
+        let guest = GuestShell(bundle: bundle)
+        if guest.isAvailable, (try? guest.run("shutdown /s /t 0")) != nil { return }
         try qmp().execute("system_powerdown")
     }
 
@@ -170,14 +221,14 @@ public final class VMController: @unchecked Sendable {
         let json = try ProcessRunner.check(environment.qemuImg, [
             "info", "-U", "--output=json", bundle.diskURL.path,
         ])
-        return try VMSnapshot.parse(qemuImgInfoJSON: Data(json.utf8))
+        return try VMSnapshot.parse(qemuImgInfoJSON: Data(json.utf8)).filter { $0.name != Self.suspendSnapshotName }
     }
 
     /// Con la VM encendida guarda disco + memoria (savevm); apagada, solo disco.
     public func createSnapshot(named name: String) throws {
         let name = try Self.validSnapshotName(name)
         if isRunning {
-            try qmp().humanMonitorCommand("savevm \(name)")
+            try qmp(timeout: 900).humanMonitorCommand("savevm \(name)")
         } else {
             try ProcessRunner.check(environment.qemuImg, ["snapshot", "-c", name, bundle.diskURL.path])
             try ProcessRunner.check(environment.qemuImg, ["snapshot", "-c", name, bundle.efiVarsURL.path])
@@ -186,8 +237,11 @@ public final class VMController: @unchecked Sendable {
 
     public func restoreSnapshot(named name: String) throws {
         let name = try Self.validSnapshotName(name)
+        if isSuspended {
+            throw VMError.invalidConfiguration("la VM está suspendida: reanúdala o descarta el estado suspendido antes de restaurar")
+        }
         if isRunning {
-            try qmp().humanMonitorCommand("loadvm \(name)")
+            try qmp(timeout: 900).humanMonitorCommand("loadvm \(name)")
         } else {
             try ProcessRunner.check(environment.qemuImg, ["snapshot", "-a", name, bundle.diskURL.path])
             // Las variables UEFI pueden no tener ese snapshot; no es grave.
@@ -198,7 +252,7 @@ public final class VMController: @unchecked Sendable {
     public func deleteSnapshot(named name: String) throws {
         let name = try Self.validSnapshotName(name)
         if isRunning {
-            try qmp().humanMonitorCommand("delvm \(name)")
+            try qmp(timeout: 120).humanMonitorCommand("delvm \(name)")
         } else {
             try ProcessRunner.check(environment.qemuImg, ["snapshot", "-d", name, bundle.diskURL.path])
             _ = try? ProcessRunner.run(environment.qemuImg, ["snapshot", "-d", name, bundle.efiVarsURL.path])
@@ -231,6 +285,9 @@ public final class VMController: @unchecked Sendable {
             || config.rdpPort != old.rdpPort
         if hardwareChanged && isRunning {
             throw VMError.invalidConfiguration("apaga la VM para cambiar el hardware")
+        }
+        if hardwareChanged && isSuspended {
+            throw VMError.invalidConfiguration("la VM está suspendida: reanúdala y apágala, o descarta el estado suspendido, para cambiar el hardware")
         }
         if config.diskSizeGB < old.diskSizeGB {
             throw VMError.invalidConfiguration("el disco no se puede reducir")
