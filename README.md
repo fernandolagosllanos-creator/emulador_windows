@@ -14,7 +14,8 @@ No es un emulador escrito desde cero. Paralelo es una app nativa (SwiftUI) y un 
 | Iniciar, pausar, reanudar, apagar, forzar | QMP (protocolo de control de QEMU). **Apagar** le pide a Windows que se apague por el canal de control |
 | Suspender | Guarda el estado de Windows (memoria incluida) en el disco y cierra la VM; **Reanudar** sigue donde estaba |
 | Carpeta del Mac en Windows | Tu carpeta de inicio aparece como unidad **Z: (Mac)** en Windows, por el SMB integrado de QEMU (necesita `brew install samba`) |
-| Portapapeles | En la ventana de pantalla: lo copiado en el Mac se pega en Windows y al revés (texto) |
+| Portapapeles | En la ventana de pantalla: texto, imágenes y archivos copiados en el Mac se pegan en Windows y al revés |
+| Arrastrar y soltar | Suelta archivos del Mac sobre la ventana de pantalla: van a la carpeta del Explorador que haya debajo o al Escritorio |
 | Snapshots | Con la VM encendida guardan disco y memoria (`savevm`). Con la VM apagada, solo disco (`qemu-img snapshot`) |
 | Ajustes de CPU, RAM y disco | Editables con la VM apagada. El disco solo crece |
 | Pantalla de Windows en Paralelo | Ventana propia de Paralelo (VNC por un socket privado), con teclado español y ratón. Sirve también para instalar Windows |
@@ -110,10 +111,10 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 - **Coherence exige Windows Pro** (Home no incluye servidor RDP) y un usuario con contraseña.
 - **Sin TPM.** El TPM emulado (`tpm-tis-device`) hace fallar a QEMU con HVF, así que Paralelo no lo usa: Windows 11 se instala igual porque la unidad PARALELO incluye un `Autounattend.xml` que salta esa comprobación. BitLocker y Windows Hello con TPM no están disponibles.
 - **La carpeta del Mac llega por SMB, no por virtio-fs** (virtio-fs no existe en QEMU para macOS). Para el SMB interno de QEMU, `setup-windows.ps1` permite en Windows conexiones SMB de invitado sin firma; solo existen dentro de la red privada de la VM.
-- **El portapapeles de la ventana de pantalla solo copia texto** y se sincroniza al entrar y salir de la ventana. En Coherence y en el escritorio RDP el portapapeles lo gestiona RDP.
+- **El portapapeles de la ventana de pantalla se sincroniza al entrar y salir de la ventana** (texto, imágenes y archivos de hasta 1 GB). Los archivos de tu carpeta de inicio no se copian: Windows los abre desde la unidad Mac (Z:); el resto se sube por el canal SSH a `C:\ProgramData\Paralelo\transfer`. Los que copias en Windows llegan a `~/Library/Caches/Paralelo/Portapapeles`. En Coherence y en el escritorio RDP el portapapeles lo gestiona RDP.
 
 ## Hoja de ruta
 
+- Arrastrar archivos de Windows al Mac (hoy solo del Mac a Windows).
+- Portapapeles de Coherence sin los avisos de Windows App (FreeRDP).
 
-- Portapapeles con imágenes y archivos en la ventana de pantalla.
-- Arrastrar y soltar archivos del Mac a Windows.

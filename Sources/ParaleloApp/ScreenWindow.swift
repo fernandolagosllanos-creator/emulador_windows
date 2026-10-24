@@ -25,16 +25,12 @@ final class ScreenWindowController: NSWindowController, NSWindowDelegate {
     private let screen: VMScreenView
     private let onClose: () -> Void
     private var sizedToGuest = false
-    // Portapapeles: se envía el del Mac al entrar en la ventana y se trae el de Windows al salir.
-    private let clipboard: GuestClipboard
-    private let clipboardQueue = DispatchQueue(label: "Paralelo.portapapeles")
-    private var lastPushedChange = -1
-    private var lastPulled: String?
+    private let sync: GuestSync
 
     init(bundle: VMBundle, onClose: @escaping () -> Void) {
         client = VNCClient(socketPath: bundle.runtime.vncSocket.path)
         screen = VMScreenView(client: client)
-        clipboard = GuestClipboard(shell: GuestShell(bundle: bundle))
+        sync = GuestSync(bundle: bundle)
         self.onClose = onClose
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
@@ -62,10 +58,14 @@ final class ScreenWindowController: NSWindowController, NSWindowDelegate {
                 MainActor.assumeIsolated { self?.statusChanged(status) }
             }
         }
+        sync.onNotice = { [weak screen] text, autoHide in
+            MainActor.assumeIsolated { screen?.showNotice(text, autoHide: autoHide) }
+        }
+        screen.onDropFiles = { [weak self] files, x, y in self?.sync.drop(files, x: x, y: y) }
         client.start()
         window.makeFirstResponder(screen)
         // Lo que ya estaba copiado en Windows no debe pisar el portapapeles del Mac.
-        pullClipboard(apply: false)
+        sync.pull(apply: false)
     }
 
     @available(*, unavailable)
@@ -89,37 +89,12 @@ final class ScreenWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        let pasteboard = NSPasteboard.general
-        guard pasteboard.changeCount != lastPushedChange else { return }
-        lastPushedChange = pasteboard.changeCount
-        guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
-        let clipboard = clipboard
-        clipboardQueue.async { try? clipboard.push(text) }
+        sync.push()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         screen.releaseAllKeys()
-        pullClipboard(apply: true)
-    }
-
-    private func pullClipboard(apply: Bool) {
-        let clipboard = clipboard
-        clipboardQueue.async { [weak self] in
-            guard let text = try? clipboard.pull() else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.receivedClipboard(text, apply: apply) }
-            }
-        }
-    }
-
-    private func receivedClipboard(_ text: String, apply: Bool) {
-        guard text != lastPulled else { return }
-        lastPulled = text
-        guard apply else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        lastPushedChange = pasteboard.changeCount
+        sync.pull(apply: true)
     }
 }
 
@@ -154,6 +129,10 @@ final class VMScreenView: NSView {
     private var pressedKeys = Set<UInt32>()
     private var scrollRemainder: CGFloat = 0
     private let message = NSTextField(labelWithString: "Conectando con la VM…")
+    private let notice = NSTextField(labelWithString: "")
+    private var noticeHide: DispatchWorkItem?
+    /// Archivos soltados sobre la pantalla, con el punto de Windows donde cayeron.
+    var onDropFiles: (([URL], Int, Int) -> Void)?
 
     var status: VNCClient.Status = .connecting {
         didSet { updateMessage() }
@@ -171,10 +150,33 @@ final class VMScreenView: NSView {
         message.alignment = .center
         message.translatesAutoresizingMaskIntoConstraints = false
         addSubview(message)
+        notice.textColor = .white
+        notice.alignment = .center
+        notice.wantsLayer = true
+        notice.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.7).cgColor
+        notice.layer?.cornerRadius = 6
+        notice.isHidden = true
+        notice.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(notice)
         NSLayoutConstraint.activate([
             message.centerXAnchor.constraint(equalTo: centerXAnchor),
             message.centerYAnchor.constraint(equalTo: centerYAnchor),
+            notice.centerXAnchor.constraint(equalTo: centerXAnchor),
+            notice.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
         ])
+        registerForDraggedTypes([.fileURL])
+    }
+
+    /// Aviso en la parte de abajo de la pantalla (copias, errores); nil lo quita.
+    func showNotice(_ text: String?, autoHide: Bool) {
+        noticeHide?.cancel()
+        notice.stringValue = text.map { "  \($0)  " } ?? ""
+        notice.isHidden = text == nil
+        guard autoHide, text != nil else { return }
+        let hide = DispatchWorkItem { [weak self] in self?.notice.isHidden = true }
+        noticeHide = hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: hide)
     }
 
     @available(*, unavailable)
@@ -232,10 +234,10 @@ final class VMScreenView: NSView {
                                        owner: self, userInfo: nil))
     }
 
-    /// Convierte un punto de la vista a coordenadas de la pantalla de Windows (la imagen se ajusta sin deformarse).
-    private func guestPoint(_ event: NSEvent) -> (x: Int, y: Int)? {
+    /// Convierte un punto de la ventana a coordenadas de la pantalla de Windows (la imagen se ajusta sin deformarse).
+    private func guestPoint(_ windowPoint: NSPoint) -> (x: Int, y: Int)? {
         guard guestSize.width > 0, bounds.width > 0, bounds.height > 0 else { return nil }
-        let p = convert(event.locationInWindow, from: nil)
+        let p = convert(windowPoint, from: nil)
         let scale = min(bounds.width / guestSize.width, bounds.height / guestSize.height)
         let shown = CGSize(width: guestSize.width * scale, height: guestSize.height * scale)
         let origin = CGPoint(x: (bounds.width - shown.width) / 2, y: (bounds.height - shown.height) / 2)
@@ -245,7 +247,7 @@ final class VMScreenView: NSView {
     }
 
     private func sendPointer(_ event: NSEvent, buttons extra: UInt8 = 0) {
-        guard let point = guestPoint(event) else { return }
+        guard let point = guestPoint(event.locationInWindow) else { return }
         client.sendPointer(x: point.x, y: point.y, buttons: buttons | extra)
     }
 
@@ -289,6 +291,31 @@ final class VMScreenView: NSView {
             sendPointer(event)
             scrollRemainder -= scrollRemainder > 0 ? step : -step
         }
+    }
+
+    // MARK: Arrastrar archivos
+
+    private func droppedFiles(_ sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                              options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        draggingUpdated(sender)
+    }
+
+    /// El puntero de Windows sigue al arrastre, para ver sobre qué carpeta van a caer.
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard !droppedFiles(sender).isEmpty, guestSize.width > 0 else { return [] }
+        if let point = guestPoint(sender.draggingLocation) { client.sendPointer(x: point.x, y: point.y, buttons: 0) }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let files = droppedFiles(sender)
+        guard !files.isEmpty, let point = guestPoint(sender.draggingLocation) else { return false }
+        onDropFiles?(files, point.x, point.y)
+        return true
     }
 
     // MARK: Teclado

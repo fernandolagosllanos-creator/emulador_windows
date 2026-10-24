@@ -75,6 +75,14 @@ public struct RuntimePaths: Sendable {
     /// Pantalla de la VM por VNC, para verla dentro de Paralelo.
     public var vncSocket: URL { directory.appendingPathComponent("vnc.sock") }
     public var pidFile: URL { directory.appendingPathComponent("qemu.pid") }
+    /// Carpeta del Mac compartida con Windows en este arranque (contiene su ruta), si la hay.
+    public var sharedFolderFile: URL { directory.appendingPathComponent("shared-folder") }
+
+    /// La carpeta del Mac que Windows ve en \\10.0.2.4\qemu mientras la VM está encendida.
+    public var sharedFolder: URL? {
+        guard let path = try? String(contentsOf: sharedFolderFile, encoding: .utf8), !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
 
     public func prepare() throws {
         try FileManager.default.createDirectory(

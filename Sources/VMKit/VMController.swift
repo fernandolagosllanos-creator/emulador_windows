@@ -100,7 +100,7 @@ public final class VMController: @unchecked Sendable {
         guard !isRunning else { throw VMError.alreadyRunning }
         let fm = FileManager.default
         try runtime.prepare()
-        for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.vncSocket, runtime.pidFile] {
+        for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.vncSocket, runtime.pidFile, runtime.sharedFolderFile] {
             try? fm.removeItem(at: stale)
         }
 
@@ -148,6 +148,7 @@ public final class VMController: @unchecked Sendable {
             throw VMError.commandFailed("QEMU terminó al arrancar:\n\(logTail())")
         }
         guard ready else { throw VMError.timeout("QEMU no respondió por QMP") }
+        if let shared { try? shared.path.write(to: runtime.sharedFolderFile, atomically: true, encoding: .utf8) }
         if resuming {
             // Ya cargado: el estado guardado deja de hacer falta.
             _ = try? qmp(timeout: 120).humanMonitorCommand("delvm \(Self.suspendSnapshotName)")
