@@ -4,7 +4,7 @@ import Foundation
 /// RDP y RemoteApp. Así no hace falta red ni carpetas compartidas para preparar Windows.
 public enum GuestTools {
     /// Súbelo cuando cambie el contenido de la ISO (las VMs existentes la regeneran al arrancar).
-    public static let version = 4
+    public static let version = 5
     public static let setupScriptName = "setup-windows.ps1"
     /// Clave pública SSH de la VM; setup-windows.ps1 la autoriza para el canal de control.
     public static let publicKeyName = "paralelo.pub"
@@ -126,9 +126,13 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'paralelo-agent.vbs') $launcher -Force
     $startup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp'
     Copy-Item $launcher (Join-Path $startup 'Paralelo.vbs') -Force
-    # Se arranca ya, sin permisos de administrador (a través del Explorador), en la sesión del usuario.
+    # Se cierra el agente anterior y se arranca el nuevo sin permisos de administrador (a través del
+    # Explorador), en la sesión del usuario.
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+        Where-Object { $_.CommandLine -like '*paralelo-agent.ps1*' } |
+        Invoke-CimMethod -MethodName Terminate | Out-Null
     Start-Process explorer.exe -ArgumentList "`"$launcher`""
-    Write-Host 'Agente de Paralelo instalado (unidad Z: con tu carpeta del Mac y portapapeles).' -ForegroundColor Green
+    Write-Host 'Agente de Paralelo instalado (unidad Z: con tu carpeta del Mac, portapapeles y archivos).' -ForegroundColor Green
 } catch {
     Write-Warning "No se pudo instalar el agente de Paralelo: $($_.Exception.Message)"
 }
@@ -140,51 +144,172 @@ Write-Host ' - Con cuenta Microsoft, el usuario para RDP es tu correo y la contr
 Write-Host ' - Reinicia Windows para aplicar todos los cambios.'
 """#
 
+    /// Versión del agente; Paralelo lo actualiza por SSH cuando la de Windows es otra.
+    public static let agentVersion = 5
+
     /// Agente que se ejecuta oculto al iniciar sesión en Windows. Solo ASCII (Windows PowerShell 5.1).
+    /// Intercambia con el Mac, por archivos en C:\ProgramData\Paralelo\clipboard:
+    /// - from-mac.kind ("text image files") y from-mac.txt/.png/-files.txt: portapapeles del Mac.
+    /// - to-mac.kind ("<id> text image files size=<bytes>") y to-mac.txt/.png/-files.txt: el de Windows.
+    /// - drop.txt ("x y" y una ruta por línea): archivos soltados sobre la pantalla.
     public static let agentScript = #"""
 # Agente de Paralelo: se ejecuta oculto al iniciar sesion.
 $ErrorActionPreference = 'SilentlyContinue'
 $mutex = New-Object System.Threading.Mutex($false, 'Local\ParaleloAgent')
 if (-not $mutex.WaitOne(0)) { exit }
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace Paralelo {
+    public static class Native {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT { public int X; public int Y; }
+
+        [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
+        [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+        [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
+
+        // Ventana principal bajo un punto de la pantalla (en pixeles reales).
+        public static long RootAt(int x, int y) {
+            POINT p;
+            p.X = x;
+            p.Y = y;
+            return GetAncestor(WindowFromPoint(p), 2).ToInt64();
+        }
+    }
+}
+'@
+[Paralelo.Native]::SetProcessDPIAware() | Out-Null
+
+$dir = Join-Path $env:ProgramData 'Paralelo\clipboard'
+$utf8 = New-Object System.Text.UTF8Encoding $false
+function P([string]$name) { Join-Path $dir $name }
+[IO.File]::WriteAllText((P 'agent-version.txt'), 'AGENT_VERSION', $utf8)
 
 # 1. Carpeta del Mac (SMB interno de QEMU) como unidad Z:, cuando la red este lista.
+#    Se marca como intranet para que copiar desde ella no muestre avisos de seguridad.
+$zone = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Ranges\Paralelo'
+New-Item -Path $zone -Force | Out-Null
+Set-ItemProperty -Path $zone -Name ':Range' -Value '10.0.2.4'
+Set-ItemProperty -Path $zone -Name 'file' -Value 1 -Type DWord
 for ($i = 0; $i -lt 30 -and -not (Test-Path 'Z:\'); $i++) {
     net use Z: \\10.0.2.4\qemu /persistent:no 2>&1 | Out-Null
     if (-not (Test-Path 'Z:\')) { Start-Sleep -Seconds 2 }
 }
 if (Test-Path 'Z:\') { (New-Object -ComObject Shell.Application).NameSpace('Z:\').Self.Name = 'Mac' }
 
-# 2. Portapapeles: Paralelo escribe from-mac.txt y lee to-mac.txt por el canal de control.
-$dir = Join-Path $env:ProgramData 'Paralelo\clipboard'
-$toMac = Join-Path $dir 'to-mac.txt'
-$fromMac = Join-Path $dir 'from-mac.txt'
-$utf8 = New-Object System.Text.UTF8Encoding $false
-Remove-Item $toMac -Force
-$lastStamp = if (Test-Path $fromMac) { (Get-Item $fromMac).LastWriteTimeUtc } else { [DateTime]::MinValue }
-$last = ''
-while ($true) {
-    if (Test-Path $fromMac) {
-        $stamp = (Get-Item $fromMac).LastWriteTimeUtc
-        if ($stamp -ne $lastStamp) {
-            $lastStamp = $stamp
-            $text = [System.IO.File]::ReadAllText($fromMac, $utf8)
-            if ($text) {
-                [System.Windows.Forms.Clipboard]::SetText($text)
-                $last = $text
+# 2. Portapapeles (texto, imagenes y archivos) y archivos soltados desde el Mac.
+function Stamp([string]$path) {
+    if (Test-Path -LiteralPath $path) { (Get-Item -LiteralPath $path).LastWriteTimeUtc } else { [DateTime]::MinValue }
+}
+function Read-Lines([string]$path) { @([IO.File]::ReadAllLines($path, $utf8) | Where-Object { $_ }) }
+
+function Export-Clipboard {
+    $kinds = @()
+    $size = 0
+    if ([System.Windows.Forms.Clipboard]::ContainsFileDropList()) {
+        $files = @([System.Windows.Forms.Clipboard]::GetFileDropList())
+        [IO.File]::WriteAllLines((P 'to-mac-files.txt'), [string[]]$files, $utf8)
+        foreach ($file in $files) {
+            $item = Get-Item -LiteralPath $file
+            if ($item.PSIsContainer) {
+                $size += (Get-ChildItem -LiteralPath $file -Recurse -File | Measure-Object -Property Length -Sum).Sum
+            } else {
+                $size += $item.Length
             }
         }
+        $kinds += 'files'
     }
     if ([System.Windows.Forms.Clipboard]::ContainsText()) {
-        $current = [System.Windows.Forms.Clipboard]::GetText()
-        if ($current -and $current -ne $last) {
-            $last = $current
-            [System.IO.File]::WriteAllText($toMac, $current, $utf8)
+        [IO.File]::WriteAllText((P 'to-mac.txt'), [System.Windows.Forms.Clipboard]::GetText(), $utf8)
+        $kinds += 'text'
+    }
+    if ($kinds -notcontains 'files' -and [System.Windows.Forms.Clipboard]::ContainsImage()) {
+        $image = [System.Windows.Forms.Clipboard]::GetImage()
+        if ($image) {
+            $image.Save((P 'to-mac.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+            $image.Dispose()
+            $kinds += 'image'
         }
     }
-    Start-Sleep -Milliseconds 500
+    if ($kinds.Count -gt 0) {
+        $line = "$([DateTime]::UtcNow.Ticks) $($kinds -join ' ') size=$size"
+        [IO.File]::WriteAllText((P 'to-mac.kind'), $line, $utf8)
+    }
 }
-"""#
+
+function Import-Clipboard([string[]]$kinds) {
+    $data = New-Object System.Windows.Forms.DataObject
+    $any = $false
+    if ($kinds -contains 'files') {
+        $list = New-Object System.Collections.Specialized.StringCollection
+        foreach ($line in (Read-Lines (P 'from-mac-files.txt'))) { [void]$list.Add($line) }
+        if ($list.Count -gt 0) { $data.SetFileDropList($list); $any = $true }
+    }
+    if ($kinds -contains 'text') {
+        $text = [IO.File]::ReadAllText((P 'from-mac.txt'), $utf8)
+        if ($text) { $data.SetText($text); $any = $true }
+    }
+    if ($kinds -contains 'image') {
+        $bytes = [IO.File]::ReadAllBytes((P 'from-mac.png'))
+        $image = [System.Drawing.Image]::FromStream((New-Object System.IO.MemoryStream(,$bytes)))
+        if ($image) { $data.SetImage($image); $any = $true }
+    }
+    if ($any) {
+        [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+        $script:ourSeq = [Paralelo.Native]::GetClipboardSequenceNumber()
+    }
+}
+
+# Sobre una carpeta abierta del Explorador los archivos van a esa carpeta; si no, al Escritorio.
+function Invoke-Drop {
+    $lines = Read-Lines (P 'drop.txt')
+    if ($lines.Count -lt 2) { return }
+    $point = $lines[0] -split ' '
+    $root = [Paralelo.Native]::RootAt([int]$point[0], [int]$point[1])
+    $shell = New-Object -ComObject Shell.Application
+    $target = ''
+    foreach ($window in $shell.Windows()) {
+        if ([int64]$window.HWND -eq $root) {
+            $path = $window.Document.Folder.Self.Path
+            if ($path -and (Test-Path -LiteralPath $path)) { $target = $path; break }
+        }
+    }
+    if (-not $target) { $target = [Environment]::GetFolderPath('Desktop') }
+    $folder = $shell.NameSpace($target)
+    foreach ($source in ($lines | Select-Object -Skip 1)) { $folder.CopyHere($source, 0) }
+}
+
+$fromKind = P 'from-mac.kind'
+$dropFile = P 'drop.txt'
+Remove-Item (P 'to-mac.kind') -Force
+$lastFrom = Stamp $fromKind
+$lastDrop = Stamp $dropFile
+$lastSeq = 0
+$ourSeq = 0
+while ($true) {
+    $stamp = Stamp $fromKind
+    if ($stamp -ne $lastFrom) {
+        $lastFrom = $stamp
+        try { Import-Clipboard (([IO.File]::ReadAllText($fromKind, $utf8)).Trim() -split ' ') } catch { }
+    }
+    $stamp = Stamp $dropFile
+    if ($stamp -ne $lastDrop) {
+        $lastDrop = $stamp
+        try { Invoke-Drop } catch { }
+    }
+    $seq = [Paralelo.Native]::GetClipboardSequenceNumber()
+    if ($seq -ne $lastSeq) {
+        $lastSeq = $seq
+        if ($seq -ne $ourSeq) { try { Export-Clipboard } catch { } }
+    }
+    Start-Sleep -Milliseconds 400
+}
+"""#.replacingOccurrences(of: "AGENT_VERSION", with: "\(agentVersion)")
 
     /// Lanza el agente sin ninguna ventana (PowerShell con -WindowStyle Hidden aún parpadea).
     public static let agentLauncher = #"""
@@ -192,9 +317,42 @@ while ($true) {
 
     """#
 
-    /// Rutas del portapapeles compartido dentro de Windows.
-    public static let clipboardToMac = #"C:\ProgramData\Paralelo\clipboard\to-mac.txt"#
-    public static let clipboardFromMac = #"C:\ProgramData\Paralelo\clipboard\from-mac.txt"#
+    /// Carpetas del agente dentro de Windows.
+    public static let clipboardDirectory = #"C:\ProgramData\Paralelo\clipboard"#
+    /// Archivos que el Mac copia a Windows (portapapeles y arrastrar) cuando no están en la carpeta compartida.
+    public static let transferDirectory = #"C:\ProgramData\Paralelo\transfer"#
+    /// La carpeta compartida del Mac, tal como la ve Windows.
+    public static let sharedFolderUNC = #"\\10.0.2.4\qemu"#
+
+    /// Cierra el agente que esté en marcha (aunque sea de otra versión).
+    static let stopAgent = #"""
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+    Where-Object { $_.CommandLine -like '*paralelo-agent.ps1*' } |
+    Invoke-CimMethod -MethodName Terminate | Out-Null
+"""#
+
+    /// Instala el agente actual desde el Mac por SSH y lo arranca en la sesión del usuario
+    /// (con una tarea programada: un proceso lanzado desde SSH no tiene escritorio).
+    public static var agentInstallScript: String {
+        let ps1 = Data(agentScript.replacingOccurrences(of: "\n", with: "\r\n").utf8).base64EncodedString()
+        let vbs = Data(agentLauncher.replacingOccurrences(of: "\n", with: "\r\n").utf8).base64EncodedString()
+        return #"""
+$ErrorActionPreference = 'Stop'
+$base = Join-Path $env:ProgramData 'Paralelo'
+$clip = Join-Path $base 'clipboard'
+New-Item -ItemType Directory -Path $clip -Force | Out-Null
+icacls $clip /grant '*S-1-5-32-545:(OI)(CI)M' | Out-Null
+[IO.File]::WriteAllBytes((Join-Path $base 'paralelo-agent.ps1'), [Convert]::FromBase64String('PS1'))
+[IO.File]::WriteAllBytes((Join-Path $base 'paralelo-agent.vbs'), [Convert]::FromBase64String('VBS'))
+$startup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp'
+Copy-Item (Join-Path $base 'paralelo-agent.vbs') (Join-Path $startup 'Paralelo.vbs') -Force
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + (Join-Path $base 'paralelo-agent.vbs') + '"')
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+Register-ScheduledTask -TaskName 'Paralelo agente' -Action $action -Principal $principal -Force | Out-Null
+Remove-Item (Join-Path $clip 'agent-version.txt') -Force -ErrorAction SilentlyContinue
+"""#.replacingOccurrences(of: "'PS1'", with: "'\(ps1)'").replacingOccurrences(of: "'VBS'", with: "'\(vbs)'")
+            + stopAgent + "Start-ScheduledTask -TaskName 'Paralelo agente'\n"
+    }
 
     /// Crea la ISO con hdiutil (incluido en macOS). Devuelve false si hdiutil no está disponible.
     @discardableResult

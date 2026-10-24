@@ -329,7 +329,59 @@ final class GuestAgentTests: XCTestCase {
     func testSetupInstallsAgentAndAllowsGuestSMB() {
         XCTAssertTrue(GuestTools.setupScript.contains("paralelo-agent.vbs"))
         XCTAssertTrue(GuestTools.setupScript.contains("EnableInsecureGuestLogons"))
-        XCTAssertGreaterThanOrEqual(GuestTools.version, 4)
+        XCTAssertGreaterThanOrEqual(GuestTools.version, 5)
+    }
+
+    func testAgentHandlesImagesFilesAndDrops() {
+        let agent = GuestTools.agentScript
+        XCTAssertTrue(agent.contains("agent-version.txt"))
+        XCTAssertTrue(agent.contains("'\(GuestTools.agentVersion)'"))
+        XCTAssertTrue(agent.contains("ContainsFileDropList"))
+        XCTAssertTrue(agent.contains("to-mac.png"))
+        XCTAssertTrue(agent.contains("drop.txt"))
+        XCTAssertTrue(agent.contains("GetClipboardSequenceNumber"))
+        let install = GuestTools.agentInstallScript
+        XCTAssertTrue(install.unicodeScalars.allSatisfy(\.isASCII))
+        XCTAssertTrue(install.contains("Register-ScheduledTask"))
+        XCTAssertTrue(install.contains("Start-ScheduledTask"))
+    }
+
+    func testClipboardStateLine() {
+        let state = GuestClipboardState(line: "638000 files text size=4096\r\n")
+        XCTAssertEqual(state?.id, "638000")
+        XCTAssertEqual(state?.formats, ["files", "text"])
+        XCTAssertEqual(state?.size, 4096)
+        XCTAssertNil(GuestClipboardState(line: ""))
+    }
+
+    func testTransferMapsSharedFolderPaths() {
+        var config = VMConfiguration(name: "w")
+        config.coherence.username = "Fernando Lagos"
+        let bundle = VMBundle(url: URL(fileURLWithPath: "/vms/x.paralelovm"), configuration: config)
+        let transfer = GuestTransfer(shell: GuestShell(bundle: bundle), sharedFolder: URL(fileURLWithPath: "/Users/f/"))
+        XCTAssertEqual(transfer.windowsPath(forMacURL: URL(fileURLWithPath: "/Users/f/Documents/a b.pdf")),
+                       #"\\10.0.2.4\qemu\Documents\a b.pdf"#)
+        XCTAssertNil(transfer.windowsPath(forMacURL: URL(fileURLWithPath: "/Volumes/USB/a.pdf")))
+        XCTAssertEqual(transfer.macURL(forWindowsPath: #"Z:\Documents\a.pdf"#)?.path, "/Users/f/Documents/a.pdf")
+        XCTAssertEqual(transfer.macURL(forWindowsPath: #"\\10.0.2.4\QEMU\x.txt"#)?.path, "/Users/f/x.txt")
+        XCTAssertNil(transfer.macURL(forWindowsPath: #"C:\Users\f\x.txt"#))
+        XCTAssertEqual(GuestTransfer.windowsName(#"C:\Users\f\Desktop\foto.png"#), "foto.png")
+        XCTAssertNil(GuestTransfer(shell: GuestShell(bundle: bundle), sharedFolder: nil)
+            .windowsPath(forMacURL: URL(fileURLWithPath: "/Users/f/a")))
+    }
+
+    func testSCPArgumentsAndRemotePaths() {
+        var config = VMConfiguration(name: "w", rdpPort: 33890)
+        config.coherence.username = "Fernando Lagos"
+        let bundle = VMBundle(url: URL(fileURLWithPath: "/vms/x.paralelovm"), configuration: config)
+        let args = GuestShell(bundle: bundle).scpArguments(sources: ["/tmp/a"], destination: "127.0.0.1:/C:/x/")
+        XCTAssertTrue(args.contains("User=\"Fernando Lagos\""))
+        XCTAssertEqual(Array(args.suffix(2)), ["/tmp/a", "127.0.0.1:/C:/x/"])
+        XCTAssertEqual(args[args.firstIndex(of: "-P")! + 1], "34890")
+        XCTAssertEqual(GuestShell.remotePath(#"C:\Users\f\a [1].txt"#, escapingGlobs: true),
+                       #"127.0.0.1:/C:/Users/f/a \[1].txt"#)
+        XCTAssertEqual(GuestShell.remotePath(#"C:\ProgramData\Paralelo\clipboard\"#),
+                       "127.0.0.1:/C:/ProgramData/Paralelo/clipboard/")
     }
 
     func testSuspendedMarkerDrivesState() throws {
