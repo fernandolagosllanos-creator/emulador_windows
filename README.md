@@ -111,7 +111,6 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 - **Sin TPM.** El TPM emulado (`tpm-tis-device`) hace fallar a QEMU con HVF, así que Paralelo no lo usa: Windows 11 se instala igual porque la unidad PARALELO incluye un `Autounattend.xml` que salta esa comprobación. BitLocker y Windows Hello con TPM no están disponibles.
 - **La carpeta del Mac llega por SMB, no por virtio-fs** (virtio-fs no existe en QEMU para macOS). Para el SMB interno de QEMU, `setup-windows.ps1` permite en Windows conexiones SMB de invitado sin firma; solo existen dentro de la red privada de la VM.
 - **El portapapeles de la ventana de pantalla solo copia texto** y se sincroniza al entrar y salir de la ventana. En Coherence y en el escritorio RDP el portapapeles lo gestiona RDP.
-- **Pendiente de verificar en hardware real:** snapshots con memoria (`savevm`) y Suspender sobre HVF.
 
 ## Hoja de ruta
 
