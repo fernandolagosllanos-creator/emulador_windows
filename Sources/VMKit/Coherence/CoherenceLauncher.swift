@@ -16,17 +16,23 @@ public struct CoherenceLauncher {
     }
 
     /// Arranca la VM sin ventana si hace falta, espera a que Windows acepte RDP y abre la app.
-    /// `app == nil` abre el escritorio completo.
-    public func open(app: RemoteApp?, bootTimeout: TimeInterval = 180) throws {
+    /// `app == nil` abre el escritorio completo. `progress` recibe cada paso para mostrarlo.
+    public func open(app: RemoteApp?, bootTimeout: TimeInterval = 180,
+                     progress: (String) -> Void = { _ in }) throws {
         if !controller.isRunning {
+            progress("Arrancando Windows sin ventana…")
             try controller.start(display: .headless, bootFromInstaller: false)
         } else if controller.state() == .paused {
             try controller.resume()
         }
         let port = controller.bundle.configuration.rdpPort
-        guard ProcessRunner.waitFor(timeout: bootTimeout, interval: 2, { Self.rdpIsReady(port: port) }) else {
-            throw VMError.timeout("Windows no respondió por RDP en el puerto \(port). ¿Ejecutaste setup-windows.ps1 (unidad PARALELO) dentro de Windows?")
+        if !Self.rdpIsReady(port: port) {
+            progress("Esperando a que Windows termine de arrancar (puede tardar hasta \(Int(bootTimeout / 60)) min)…")
+            guard ProcessRunner.waitFor(timeout: bootTimeout, interval: 2, { Self.rdpIsReady(port: port) }) else {
+                throw VMError.timeout("Windows no respondió por RDP en el puerto \(port). ¿Ejecutaste setup-windows.ps1 (unidad PARALELO) dentro de Windows?")
+            }
         }
+        progress("Abriendo \(app?.name ?? "el escritorio de Windows")…")
         switch controller.bundle.configuration.coherence.client {
         case .windowsApp: try openWithWindowsApp(app: app)
         case .freeRDP: try openWithFreeRDP(app: app)

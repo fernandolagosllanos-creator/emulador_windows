@@ -66,7 +66,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Ejecuta una acción sobre una VM fuera del hilo principal y recarga al terminar.
-    func perform(_ id: UUID, _ work: @escaping @Sendable (VMController) throws -> Void) {
+    /// `done` recibe si la acción falló, para limpiar mensajes de progreso.
+    func perform(_ id: UUID, done: (@MainActor @Sendable (Bool) -> Void)? = nil,
+                 _ work: @escaping @Sendable (VMController) throws -> Void) {
         guard let controller = controller(id) else {
             errorMessage = environmentError ?? "VM no encontrada"
             return
@@ -83,6 +85,7 @@ final class AppModel: ObservableObject {
             await MainActor.run {
                 self.busy.remove(id)
                 if let failure { self.errorMessage = failure }
+                done?(failure != nil)
                 self.reload()
             }
         }
@@ -120,9 +123,14 @@ final class AppModel: ObservableObject {
 
     func open(app: RemoteApp?, in id: UUID) {
         let password = bundle(id).flatMap { KeychainStore.password(for: $0.configuration.id) }
-        notice = app.map { "Abriendo \($0.name)…" } ?? "Abriendo el escritorio de Windows…"
-        perform(id) { controller in
-            try CoherenceLauncher(controller: controller, password: password).open(app: app)
+        let name = app?.name ?? "el escritorio de Windows"
+        notice = "Abriendo \(name)…"
+        perform(id, done: { [weak self] failed in
+            self?.notice = failed ? nil : "\(name) abierto en una ventana del Mac."
+        }) { controller in
+            try CoherenceLauncher(controller: controller, password: password).open(app: app) { step in
+                Task { @MainActor [weak self] in self?.notice = step }
+            }
         }
     }
 
