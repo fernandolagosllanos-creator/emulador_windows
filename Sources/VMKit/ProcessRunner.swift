@@ -9,10 +9,12 @@ public enum ProcessRunner {
     }
 
     @discardableResult
-    public static func run(_ executable: URL, _ arguments: [String]) throws -> Output {
+    /// `input` es un archivo que se pasa como entrada estándar; sin él, la entrada está vacía.
+    public static func run(_ executable: URL, _ arguments: [String], input: URL? = nil) throws -> Output {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+        process.standardInput = try input.map { try FileHandle(forReadingFrom: $0) } ?? FileHandle.nullDevice
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err

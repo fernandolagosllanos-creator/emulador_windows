@@ -51,7 +51,7 @@ final class QEMUCommandBuilderTests: XCTestCase {
 
     func testRDPForwardedOnlyToLocalhost() {
         let netdev = values(makeBuilder().arguments(), after: "-netdev")
-        XCTAssertEqual(netdev, ["user,id=net0,hostfwd=tcp:127.0.0.1:33891-:3389"])
+        XCTAssertEqual(netdev, ["user,id=net0,hostfwd=tcp:127.0.0.1:33891-:3389,hostfwd=tcp:127.0.0.1:34891-:22"])
     }
 
     func testTPMIsOptional() {
@@ -80,6 +80,15 @@ final class QEMUCommandBuilderTests: XCTestCase {
 
     func testHeadlessDisplay() {
         XCTAssertEqual(values(makeBuilder(display: .headless).arguments(), after: "-display"), ["none"])
+    }
+
+    func testVNCOnPrivateSocket() {
+        for display in [DisplayMode.window, .headless] {
+            let vnc = values(makeBuilder(display: display).arguments(), after: "-vnc")
+            XCTAssertEqual(vnc.count, 1)
+            XCTAssertTrue(vnc[0].hasPrefix("unix:/tmp/paralelo-"))
+            XCTAssertTrue(vnc[0].hasSuffix("/abcdef12/vnc.sock"))
+        }
     }
 
     func testQMPSocketUsesShortRuntimePath() {
@@ -177,5 +186,124 @@ final class ModelTests: XCTestCase {
     func testParseWithoutSnapshots() throws {
         let snaps = try VMSnapshot.parse(qemuImgInfoJSON: Data(#"{"format":"qcow2"}"#.utf8))
         XCTAssertTrue(snaps.isEmpty)
+    }
+}
+
+final class GuestAppsTests: XCTestCase {
+    func testParseScannerOutput() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString()
+        let output = [
+            "WARN\tAdd-Type no disponible",
+            "APP\tWord\tMicrosoft.Office.WINWORD.EXE.15\tC:\\Office\\WINWORD.EXE\t\t\(png)",
+            "APP\tCalculadora\tMicrosoft.WindowsCalculator_8wekyb3d8bbwe!App\tC:\\Windows\\explorer.exe\tshell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App\t",
+            "APP\tword\tdup\tC:\\x.exe\t\t",
+            "APP\tSin programa\tid\t\t\t",
+            "basura",
+        ].joined(separator: "\r\n")
+        let apps = AppScanner.parse(output)
+        XCTAssertEqual(apps.map(\.name), ["Calculadora", "Word"])
+        XCTAssertTrue(apps[0].isStoreApp)
+        XCTAssertNil(apps[0].iconPNG)
+        XCTAssertFalse(apps[1].isStoreApp)
+        XCTAssertEqual(apps[1].iconPNG, Data([0x89, 0x50, 0x4E, 0x47]))
+        XCTAssertEqual(apps[1].makeRemoteApp().appUserModelID, "Microsoft.Office.WINWORD.EXE.15")
+    }
+
+    func testDiscoveredAppMatchesExistingApps() {
+        let found = DiscoveredApp(name: "Microsoft Edge", appUserModelID: "MSEdge",
+                                  program: #"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"#)
+        XCTAssertTrue(RemoteApp.defaults.contains { found.matches($0) })
+        XCTAssertFalse(found.matches(RemoteApp(name: "Otra", program: #"C:\otra.exe"#)))
+    }
+
+    func testScannerScriptIsASCII() {
+        XCTAssertTrue(AppScanner.script.unicodeScalars.allSatisfy(\.isASCII))
+        XCTAssertTrue(AppScanner.script.contains("shell:AppsFolder"))
+    }
+
+    func testRemoteAppDecodesOldConfigWithoutAUMID() throws {
+        let json = #"{"id":"ABCDEF12-0000-0000-0000-000000000000","name":"X","program":"C:\\x.exe","arguments":""}"#
+        let app = try JSONDecoder().decode(RemoteApp.self, from: Data(json.utf8))
+        XCTAssertNil(app.appUserModelID)
+    }
+
+    func testSSHPortAndArguments() {
+        var config = VMConfiguration(name: "w", rdpPort: 33890)
+        config.coherence.username = "Fernando Lagos"
+        XCTAssertEqual(config.sshPort, 34890)
+        let bundle = VMBundle(url: URL(fileURLWithPath: "/vms/x.paralelovm"), configuration: config)
+        let args = GuestShell(bundle: bundle).sshArguments(command: "cmd")
+        XCTAssertEqual(Array(args.suffix(4)), ["-l", "Fernando Lagos", "127.0.0.1", "cmd"])
+        XCTAssertTrue(args.contains("34890"))
+        XCTAssertTrue(args.contains("/vms/x.paralelovm/ssh/id_ed25519"))
+        XCTAssertTrue(args.contains("BatchMode=yes"))
+    }
+
+    func testSetupScriptAuthorizesParaleloKey() {
+        XCTAssertTrue(GuestTools.setupScript.contains("paralelo.pub"))
+        XCTAssertTrue(GuestTools.setupScript.contains("administrators_authorized_keys"))
+        XCTAssertTrue(GuestTools.setupScript.contains("OpenSSH.Server"))
+    }
+}
+
+final class ICNSTests: XCTestCase {
+    private func fakePNG(size: UInt32) -> Data {
+        var data = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13])
+        data.append(Data("IHDR".utf8))
+        for value in [size, size] {
+            data.append(contentsOf: [UInt8(value >> 24), UInt8(value >> 16 & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF)])
+        }
+        data.append(contentsOf: [8, 6, 0, 0, 0])
+        return data
+    }
+
+    func testWrapsPNGWithTypeForItsSize() throws {
+        let png = fakePNG(size: 256)
+        XCTAssertEqual(ICNS.pngSize(png)?.width, 256)
+        let icns = try XCTUnwrap(ICNS.make(png: png))
+        XCTAssertEqual(Array(icns.prefix(4)), Array("icns".utf8))
+        XCTAssertEqual(Array(icns[4..<8]), [0, 0, 0, UInt8(16 + png.count)])
+        XCTAssertEqual(Array(icns[8..<12]), Array("ic08".utf8))
+        XCTAssertEqual(icns.suffix(png.count), png)
+    }
+
+    func testRejectsNonStandardSizes() {
+        XCTAssertNil(ICNS.make(png: fakePNG(size: 48)))
+        XCTAssertNil(ICNS.make(png: Data("no es png".utf8)))
+    }
+}
+
+final class VNCTests: XCTestCase {
+    func testClientMessages() {
+        XCTAssertEqual(VNCMessages.setPixelFormatBGRA().count, 20)
+        XCTAssertEqual(VNCMessages.updateRequest(incremental: true, width: 1024, height: 768),
+                       [3, 1, 0, 0, 0, 0, 0x04, 0x00, 0x03, 0x00])
+        XCTAssertEqual(VNCMessages.pointerEvent(x: 300, y: 2, buttons: 1), [5, 1, 0x01, 0x2C, 0, 2])
+        XCTAssertEqual(VNCMessages.qemuKeyEvent(scancode: 0xB8, down: true),
+                       [255, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0xB8])
+        let encodings = VNCMessages.setEncodings([0, -223])
+        XCTAssertEqual(encodings, [2, 0, 0, 2, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0x21])
+    }
+
+    func testFramebufferBlitAndCopy() {
+        var fb = Framebuffer(width: 4, height: 3)
+        let red: [UInt8] = [0, 0, 255, 0]
+        fb.blit(red + red, x: 1, y: 0, width: 2, height: 1)
+        XCTAssertEqual(Array(fb.pixels[4..<8]), red)
+        XCTAssertEqual(Array(fb.pixels[0..<4]), [0, 0, 0, 0])
+        // Copia solapada hacia abajo: la fila 0 baja a la 1 y la 1 a la 2.
+        fb.copy(fromX: 0, fromY: 0, toX: 0, toY: 1, width: 4, height: 2)
+        XCTAssertEqual(Array(fb.pixels[(4 + 1) * 4..<(4 + 2) * 4]), red)
+        XCTAssertEqual(Array(fb.pixels[(8 + 1) * 4..<(8 + 2) * 4]), [0, 0, 0, 0])
+        XCTAssertEqual(fb.frame().pixels.count, 4 * 3 * 4)
+    }
+
+    func testKeyMap() {
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x00), 0x1E) // A
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x3D), 0xB8) // Opción derecha = AltGr
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x7E), 0xC8) // flecha arriba
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x0A, isISOKeyboard: true), 0x29)
+        XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x32, isISOKeyboard: true), 0x56)
+        XCTAssertNil(KeyMap.scancode(macKeyCode: 0x3F)) // Fn
     }
 }

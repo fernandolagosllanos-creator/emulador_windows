@@ -15,6 +15,7 @@ Uso:
   paralelo apps <vm>                    Lista las apps de Coherence
   paralelo app <vm> <app>               Abre una app de Windows como ventana del Mac
   paralelo add-app <vm> <nombre> <ruta.exe>
+  paralelo scan <vm> [--add todas|<nombre>]   Busca las apps instaladas en Windows (y sus iconos)
   paralelo dock <vm>                    Crea las apps en ~/Applications/Paralelo Apps
   paralelo delete <vm>
   paralelo log <vm>
@@ -190,6 +191,21 @@ func run() throws {
         let app = try findApp(try args.require(1, "la app"), in: c.bundle.configuration)
         try launcher(c).open(app: app)
 
+    case "scan":
+        let c = try controller(try args.require(0, "la VM"))
+        let found = try c.discoverApps { print($0) }
+        let added = Set(c.bundle.configuration.coherence.apps.flatMap { app in found.filter { $0.matches(app) }.map(\.id) })
+        for app in found {
+            let mark = added.contains(app.id) ? "✓" : " "
+            print("\(mark) \(app.name)\t\(app.isStoreApp ? "(Store) " : "")\(app.program)")
+        }
+        if let wanted = args.options["add"] {
+            let chosen = wanted == "todas" ? found : found.filter { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }
+            guard !chosen.isEmpty else { throw CLIError(message: "no se encontró \"\(wanted)\"") }
+            try c.addApps(chosen)
+            print("Añadidas. Ejecuta `paralelo dock` para actualizar las apps del Dock.")
+        }
+
     case "add-app":
         let c = try controller(try args.require(0, "la VM"))
         let app = RemoteApp(name: try args.require(1, "el nombre"), program: try args.require(2, "la ruta del .exe"))
@@ -199,7 +215,7 @@ func run() throws {
     case "dock":
         let bundle = try library.find(try args.require(0, "la VM"))
         let cli = Bundle.main.executableURL?.resolvingSymlinksInPath().path ?? CommandLine.arguments[0]
-        let urls = try AppShimBuilder(cliPath: cli).build(for: bundle.configuration)
+        let urls = try AppShimBuilder(cliPath: cli).build(for: bundle)
         print("Creadas \(urls.count) apps en \(AppShimBuilder.defaultDestination.path)")
 
     case "delete":

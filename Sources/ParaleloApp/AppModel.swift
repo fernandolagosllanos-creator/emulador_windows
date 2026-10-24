@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published var environmentError: String?
     @Published var errorMessage: String?
     @Published var notice: String?
+    @Published var discovery: AppDiscovery?
 
     let library = VMLibrary()
     private(set) var environment: QEMUEnvironment?
@@ -134,6 +135,42 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Abre la ventana con la pantalla de Windows (se conecta sola cuando la VM arranca).
+    func showScreen(_ id: UUID) {
+        guard let bundle = bundle(id) else { return }
+        ScreenWindows.shared.show(bundle)
+    }
+
+    /// Arranca la VM sin la ventana de QEMU y muestra su pantalla en Paralelo.
+    func startWithScreen(_ id: UUID) {
+        showScreen(id)
+        perform(id) { try $0.start(display: .headless) }
+    }
+
+    func discoverApps(in id: UUID) {
+        notice = "Buscando apps instaladas en Windows…"
+        perform(id, done: { [weak self] failed in
+            if failed { self?.notice = nil }
+        }) { controller in
+            let found = try controller.discoverApps { step in
+                Task { @MainActor [weak self] in self?.notice = step }
+            }
+            Task { @MainActor [weak self] in
+                self?.notice = nil
+                self?.discovery = AppDiscovery(vmID: id, apps: found)
+            }
+        }
+    }
+
+    func addApps(_ apps: [DiscoveredApp], to id: UUID) {
+        let count = apps.count
+        perform(id, done: { [weak self] failed in
+            if !failed {
+                self?.notice = "Añadidas \(count) apps. Pulsa \"Crear apps en el Dock\" para tenerlas también en el Dock."
+            }
+        }) { try $0.addApps(apps) }
+    }
+
     /// Ruta del CLI `paralelo`: dentro del .app (Contents/MacOS) o junto al ejecutable en `swift run`.
     var cliPath: String {
         if let url = Bundle.main.url(forAuxiliaryExecutable: "paralelo") { return url.path }
@@ -144,7 +181,7 @@ final class AppModel: ObservableObject {
     func buildDockApps(for id: UUID) {
         guard let bundle = bundle(id) else { return }
         do {
-            let urls = try AppShimBuilder(cliPath: cliPath).build(for: bundle.configuration)
+            let urls = try AppShimBuilder(cliPath: cliPath).build(for: bundle)
             notice = "Creadas \(urls.count) apps en ~/Applications/Paralelo Apps"
             NSWorkspace.shared.activateFileViewerSelecting(urls)
         } catch {

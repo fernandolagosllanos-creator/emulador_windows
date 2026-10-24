@@ -7,12 +7,16 @@ public struct RemoteApp: Codable, Equatable, Identifiable, Sendable {
     /// Ruta del ejecutable dentro de Windows, p. ej. C:\Windows\System32\notepad.exe
     public var program: String
     public var arguments: String
+    /// Identificador de la app en el menú Inicio de Windows (AppUserModelID), si se encontró al buscar apps.
+    public var appUserModelID: String?
 
-    public init(id: UUID = UUID(), name: String, program: String, arguments: String = "") {
+    public init(id: UUID = UUID(), name: String, program: String, arguments: String = "",
+                appUserModelID: String? = nil) {
         self.id = id
         self.name = name
         self.program = program
         self.arguments = arguments
+        self.appUserModelID = appUserModelID
     }
 
     /// Nombre seguro para archivos (.rdp y .app).

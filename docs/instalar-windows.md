@@ -17,7 +17,7 @@ paralelo create "Windows 11" --iso ~/Downloads/Win11_ARM64.iso --drivers ~/Downl
 
 ## 3. Instalación
 
-1. Pulsa **Iniciar**. Se abre la ventana de QEMU.
+1. Pulsa **Iniciar**. Se abre una ventana de Paralelo con la pantalla de la VM (haz clic dentro para usar el teclado).
 2. Cuando aparezca *Press any key to boot from CD or DVD...*, pulsa una tecla. Si se te pasa, apaga con **Forzar** y vuelve a iniciar.
 3. Elige idioma y, en la clave de producto, **"No tengo clave de producto"**.
 4. Elige **Windows 11 Pro**. Home no sirve para Coherence.
@@ -56,14 +56,16 @@ Ya en el escritorio de Windows:
    powershell -ExecutionPolicy Bypass -File E:\setup-windows.ps1
    ```
 
-3. Reinicia Windows.
+3. Si te pide instalar OpenSSH Server, deja que termine (necesita internet). Al final muestra tu **usuario para Paralelo**: apúntalo.
+4. Reinicia Windows.
 
 ## 5. Dejarla lista
 
 1. Apaga Windows desde el menú Inicio o con **Apagar** en Paralelo.
 2. Pulsa **Expulsar ISO** para quitar el instalador.
 3. Crea un snapshot llamado `limpio`.
-4. En **Coherence**, escribe tu usuario de Windows y pulsa **Guardar**.
-5. Pulsa **Abrir** junto a una app, o **Crear apps en el Dock / Launchpad**.
+4. En **Coherence**, escribe tu usuario de Windows (el que mostró el script) y pulsa **Guardar**.
+5. Pulsa **Buscar apps instaladas en Windows…** y elige las apps que quieras.
+6. Pulsa **Abrir** junto a una app, o **Crear apps en el Dock / Launchpad**.
 
-A partir de aquí puedes usar **Iniciar sin ventana** y trabajar solo con Coherence o con **Escritorio**.
+A partir de aquí puedes usar **Iniciar sin ventana** (en el menú de **Iniciar**) y trabajar solo con Coherence o con **Escritorio RDP**. **Pantalla** vuelve a mostrar la pantalla de la VM cuando la necesites.

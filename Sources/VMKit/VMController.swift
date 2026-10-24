@@ -90,7 +90,7 @@ public final class VMController: @unchecked Sendable {
         guard !isRunning else { throw VMError.alreadyRunning }
         let fm = FileManager.default
         try runtime.prepare()
-        for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.pidFile] {
+        for stale in [runtime.qmpSocket, runtime.tpmSocket, runtime.vncSocket, runtime.pidFile] {
             try? fm.removeItem(at: stale)
         }
 
@@ -100,7 +100,7 @@ public final class VMController: @unchecked Sendable {
         try? fm.moveItem(at: bundle.logURL, to: previousLog)
 
         if !fm.fileExists(atPath: bundle.toolsISOURL.path) {
-            _ = try? GuestTools.buildISO(at: bundle.toolsISOURL)
+            _ = try? GuestTools.buildISO(at: bundle.toolsISOURL, publicKey: try? GuestShell.ensureKey(for: bundle))
         }
         let toolsISO = fm.fileExists(atPath: bundle.toolsISOURL.path) ? bundle.toolsISOURL : nil
 
