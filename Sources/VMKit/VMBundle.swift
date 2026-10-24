@@ -17,6 +17,8 @@ public struct VMBundle: Sendable {
     /// El número de versión fuerza a regenerar la ISO cuando cambia su contenido.
     public var toolsISOURL: URL { url.appendingPathComponent("paralelo-tools-v\(GuestTools.version).iso") }
     public var rdpDirectoryURL: URL { url.appendingPathComponent("rdp", isDirectory: true) }
+    /// Existe mientras la VM está suspendida (su estado está en el snapshot interno del disco).
+    public var suspendedMarkerURL: URL { url.appendingPathComponent("suspended") }
     /// Clave SSH privada de la VM; la pública (.pub) va en la ISO de herramientas.
     public var sshKeyURL: URL { url.appendingPathComponent("ssh/id_ed25519") }
     /// Iconos PNG de las apps de Coherence, uno por app (<id>.png).

@@ -54,10 +54,21 @@ struct VMDetailView: View {
                 Button { model.showScreen(id) } label: { Label("Pantalla", systemImage: "display") }
                 Button { model.open(app: nil, in: id) } label: { Label("Escritorio RDP", systemImage: "macwindow") }
                 Button { model.perform(id) { try $0.pause() } } label: { Label("Pausar", systemImage: "pause.fill") }
+                Button { model.suspend(id) } label: { Label("Suspender", systemImage: "moon.zzz") }
+                    .help("Guarda el estado de Windows y apaga la VM; al volver a iniciarla sigue donde estaba")
                 Button { model.perform(id) { try $0.shutdown() } } label: { Label("Apagar", systemImage: "power") }
                 Button(role: .destructive) { model.perform(id) { try $0.forceStop() } } label: {
                     Label("Forzar", systemImage: "bolt.slash")
                 }
+            case .suspended:
+                Button { model.startWithScreen(id) } label: { Label("Reanudar", systemImage: "play.fill") }
+                Button { model.perform(id) { try $0.start(display: .headless) } } label: {
+                    Label("Reanudar sin ventana", systemImage: "play")
+                }
+                Button(role: .destructive) { model.perform(id) { try $0.discardSuspendedState() } } label: {
+                    Label("Descartar estado", systemImage: "trash")
+                }
+                .help("Olvida el estado guardado: el próximo inicio será un arranque normal de Windows")
             case .paused:
                 Button { model.showScreen(id) } label: { Label("Pantalla", systemImage: "display") }
                 Button { model.perform(id) { try $0.resume() } } label: { Label("Reanudar", systemImage: "play.fill") }
@@ -218,6 +229,10 @@ struct CoherenceSection: View {
                         }
                     }
                 }
+            }
+            if shareHome && model.environment?.smbd == nil {
+                Text("Para tener tu carpeta del Mac también como unidad Z: en Windows (no solo en RDP), instala Samba: brew install samba")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             ForEach(config.coherence.apps) { app in

@@ -4,7 +4,7 @@ import Foundation
 /// RDP y RemoteApp. Así no hace falta red ni carpetas compartidas para preparar Windows.
 public enum GuestTools {
     /// Súbelo cuando cambie el contenido de la ISO (las VMs existentes la regeneran al arrancar).
-    public static let version = 3
+    public static let version = 4
     public static let setupScriptName = "setup-windows.ps1"
     /// Clave pública SSH de la VM; setup-windows.ps1 la autoriza para el canal de control.
     public static let publicKeyName = "paralelo.pub"
@@ -107,12 +107,94 @@ if (Test-Path $pub) {
     }
 }
 
+# 6. Agente de Paralelo al iniciar sesión: monta la carpeta del Mac como unidad Z: y comparte el
+#    portapapeles con la ventana de pantalla de Paralelo.
+#    La carpeta del Mac llega por el SMB interno de QEMU, que solo admite invitados: hay que permitir
+#    esas conexiones (solo existen dentro de la red privada de la VM).
+try {
+    Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -RequireSecuritySignature $false -Confirm:$false
+    $lanman = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LanmanWorkstation'
+    New-Item -Path $lanman -Force | Out-Null
+    Set-ItemProperty -Path $lanman -Name 'AllowInsecureGuestAuth' -Value 1 -Type DWord
+
+    $agentDir = Join-Path $env:ProgramData 'Paralelo'
+    $clipDir = Join-Path $agentDir 'clipboard'
+    New-Item -ItemType Directory -Path $clipDir -Force | Out-Null
+    icacls $clipDir /grant '*S-1-5-32-545:(OI)(CI)M' | Out-Null
+    Copy-Item (Join-Path $PSScriptRoot 'paralelo-agent.ps1') $agentDir -Force
+    $launcher = Join-Path $agentDir 'paralelo-agent.vbs'
+    Copy-Item (Join-Path $PSScriptRoot 'paralelo-agent.vbs') $launcher -Force
+    $startup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp'
+    Copy-Item $launcher (Join-Path $startup 'Paralelo.vbs') -Force
+    # Se arranca ya, sin permisos de administrador (a través del Explorador), en la sesión del usuario.
+    Start-Process explorer.exe -ArgumentList "`"$launcher`""
+    Write-Host 'Agente de Paralelo instalado (unidad Z: con tu carpeta del Mac y portapapeles).' -ForegroundColor Green
+} catch {
+    Write-Warning "No se pudo instalar el agente de Paralelo: $($_.Exception.Message)"
+}
+
 Write-Host ''
 Write-Host 'Listo. Notas:' -ForegroundColor Green
 Write-Host ' - Tu usuario de Windows necesita contraseña (RDP no acepta PIN ni cuentas sin contraseña).'
 Write-Host ' - Con cuenta Microsoft, el usuario para RDP es tu correo y la contraseña de la cuenta.'
 Write-Host ' - Reinicia Windows para aplicar todos los cambios.'
 """#
+
+    /// Agente que se ejecuta oculto al iniciar sesión en Windows. Solo ASCII (Windows PowerShell 5.1).
+    public static let agentScript = #"""
+# Agente de Paralelo: se ejecuta oculto al iniciar sesion.
+$ErrorActionPreference = 'SilentlyContinue'
+$mutex = New-Object System.Threading.Mutex($false, 'Local\ParaleloAgent')
+if (-not $mutex.WaitOne(0)) { exit }
+Add-Type -AssemblyName System.Windows.Forms
+
+# 1. Carpeta del Mac (SMB interno de QEMU) como unidad Z:, cuando la red este lista.
+for ($i = 0; $i -lt 30 -and -not (Test-Path 'Z:\'); $i++) {
+    net use Z: \\10.0.2.4\qemu /persistent:no 2>&1 | Out-Null
+    if (-not (Test-Path 'Z:\')) { Start-Sleep -Seconds 2 }
+}
+if (Test-Path 'Z:\') { (New-Object -ComObject Shell.Application).NameSpace('Z:\').Self.Name = 'Mac' }
+
+# 2. Portapapeles: Paralelo escribe from-mac.txt y lee to-mac.txt por el canal de control.
+$dir = Join-Path $env:ProgramData 'Paralelo\clipboard'
+$toMac = Join-Path $dir 'to-mac.txt'
+$fromMac = Join-Path $dir 'from-mac.txt'
+$utf8 = New-Object System.Text.UTF8Encoding $false
+Remove-Item $toMac -Force
+$lastStamp = if (Test-Path $fromMac) { (Get-Item $fromMac).LastWriteTimeUtc } else { [DateTime]::MinValue }
+$last = ''
+while ($true) {
+    if (Test-Path $fromMac) {
+        $stamp = (Get-Item $fromMac).LastWriteTimeUtc
+        if ($stamp -ne $lastStamp) {
+            $lastStamp = $stamp
+            $text = [System.IO.File]::ReadAllText($fromMac, $utf8)
+            if ($text) {
+                [System.Windows.Forms.Clipboard]::SetText($text)
+                $last = $text
+            }
+        }
+    }
+    if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+        $current = [System.Windows.Forms.Clipboard]::GetText()
+        if ($current -and $current -ne $last) {
+            $last = $current
+            [System.IO.File]::WriteAllText($toMac, $current, $utf8)
+        }
+    }
+    Start-Sleep -Milliseconds 500
+}
+"""#
+
+    /// Lanza el agente sin ninguna ventana (PowerShell con -WindowStyle Hidden aún parpadea).
+    public static let agentLauncher = #"""
+    CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""C:\ProgramData\Paralelo\paralelo-agent.ps1""", 0, False
+
+    """#
+
+    /// Rutas del portapapeles compartido dentro de Windows.
+    public static let clipboardToMac = #"C:\ProgramData\Paralelo\clipboard\to-mac.txt"#
+    public static let clipboardFromMac = #"C:\ProgramData\Paralelo\clipboard\from-mac.txt"#
 
     /// Crea la ISO con hdiutil (incluido en macOS). Devuelve false si hdiutil no está disponible.
     @discardableResult
@@ -133,6 +215,10 @@ Write-Host ' - Reinicia Windows para aplicar todos los cambios.'
             try (publicKey + "\n").write(to: staging.appendingPathComponent(publicKeyName), atomically: true, encoding: .utf8)
         }
         try autounattend.write(to: staging.appendingPathComponent("Autounattend.xml"), atomically: true, encoding: .utf8)
+        try Data(agentScript.replacingOccurrences(of: "\n", with: "\r\n").utf8)
+            .write(to: staging.appendingPathComponent("paralelo-agent.ps1"))
+        try Data(agentLauncher.replacingOccurrences(of: "\n", with: "\r\n").utf8)
+            .write(to: staging.appendingPathComponent("paralelo-agent.vbs"))
 
         try? FileManager.default.removeItem(at: destination)
         try ProcessRunner.check(hdiutil, [

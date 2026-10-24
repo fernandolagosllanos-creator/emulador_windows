@@ -5,15 +5,19 @@ public struct QEMUEnvironment: Sendable {
     public var qemuSystem: URL
     public var qemuImg: URL
     public var swtpm: URL?
+    /// smbd de Samba (`brew install samba`); QEMU lo usa para compartir una carpeta del Mac con Windows.
+    public var smbd: URL?
     /// Firmware UEFI de solo lectura (edk2-aarch64-code.fd).
     public var firmwareCode: URL
     /// Plantilla de variables UEFI (edk2-arm-vars.fd), se copia a cada VM.
     public var firmwareVarsTemplate: URL
 
-    public init(qemuSystem: URL, qemuImg: URL, swtpm: URL?, firmwareCode: URL, firmwareVarsTemplate: URL) {
+    public init(qemuSystem: URL, qemuImg: URL, swtpm: URL?, firmwareCode: URL, firmwareVarsTemplate: URL,
+                smbd: URL? = nil) {
         self.qemuSystem = qemuSystem
         self.qemuImg = qemuImg
         self.swtpm = swtpm
+        self.smbd = smbd
         self.firmwareCode = firmwareCode
         self.firmwareVarsTemplate = firmwareVarsTemplate
     }
@@ -48,8 +52,12 @@ public struct QEMUEnvironment: Sendable {
         guard let vars = findShared("edk2-arm-vars.fd") else {
             throw VMError.dependencyMissing("firmware edk2-arm-vars.fd (ejecuta scripts/install-deps.sh)")
         }
+        // QEMU de Homebrew busca el smbd de Samba con este nombre.
+        let smbd = prefixes.lazy
+            .map { URL(fileURLWithPath: "\($0)/sbin/samba-dot-org-smbd") }
+            .first { fm.isExecutableFile(atPath: $0.path) }
         return QEMUEnvironment(
             qemuSystem: qemu, qemuImg: img, swtpm: findBinary("swtpm"),
-            firmwareCode: code, firmwareVarsTemplate: vars)
+            firmwareCode: code, firmwareVarsTemplate: vars, smbd: smbd)
     }
 }

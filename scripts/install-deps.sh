@@ -12,7 +12,8 @@ if ! command -v brew >/dev/null 2>&1; then
     exit 1
 fi
 
-brew install qemu
+# samba: QEMU lo usa para mostrar tu carpeta del Mac como unidad Z: en Windows.
+brew install qemu samba
 
 if [ "$1" = "--freerdp" ]; then
     brew install freerdp

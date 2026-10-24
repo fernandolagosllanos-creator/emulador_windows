@@ -19,6 +19,10 @@ public struct QEMUCommandBuilder {
     public var tpmSocket: URL?
     /// ISO de herramientas de invitado, o nil si no existe.
     public var toolsISO: URL?
+    /// Carpeta del Mac que se comparte con Windows por SMB (\\10.0.2.4\qemu), o nil.
+    public var sharedFolder: URL?
+    /// Snapshot que se carga al arrancar (reanudar una VM suspendida), o nil.
+    public var loadSnapshot: String?
 
     public init(bundle: VMBundle, environment: QEMUEnvironment, display: DisplayMode,
                 bootFromInstaller: Bool, tpmSocket: URL?, toolsISO: URL? = nil) {
@@ -83,8 +87,10 @@ public struct QEMUCommandBuilder {
         }
 
         // Red NAT con el RDP (3389) y el SSH (22) de Windows publicados solo en 127.0.0.1 del Mac.
-        args += ["-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:\(config.rdpPort)-:3389"
-                    + ",hostfwd=tcp:127.0.0.1:\(config.sshPort)-:22"]
+        var netdev = "user,id=net0,hostfwd=tcp:127.0.0.1:\(config.rdpPort)-:3389"
+            + ",hostfwd=tcp:127.0.0.1:\(config.sshPort)-:22"
+        if let shared = sharedFolder { netdev += ",smb=\(e(shared.path))" }
+        args += ["-netdev", netdev]
         args += ["-device", "virtio-net-pci,netdev=net0"]
 
         if let tpm = tpmSocket {
@@ -92,6 +98,8 @@ public struct QEMUCommandBuilder {
             args += ["-tpmdev", "emulator,id=tpm0,chardev=chrtpm"]
             args += ["-device", "tpm-tis-device,tpmdev=tpm0"]
         }
+
+        if let snapshot = loadSnapshot { args += ["-loadvm", snapshot] }
 
         args += ["-qmp", "unix:\(e(runtime.qmpSocket.path)),server=on,wait=off"]
         args += ["-pidfile", runtime.pidFile.path]

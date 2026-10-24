@@ -82,6 +82,16 @@ final class QEMUCommandBuilderTests: XCTestCase {
         XCTAssertEqual(values(makeBuilder(display: .headless).arguments(), after: "-display"), ["none"])
     }
 
+    func testSharedFolderAndResume() {
+        var builder = makeBuilder()
+        XCTAssertFalse(values(builder.arguments(), after: "-netdev")[0].contains("smb="))
+        XCTAssertFalse(builder.arguments().contains("-loadvm"))
+        builder.sharedFolder = URL(fileURLWithPath: "/Users/fer,nando")
+        builder.loadSnapshot = VMController.suspendSnapshotName
+        XCTAssertTrue(values(builder.arguments(), after: "-netdev")[0].hasSuffix(",smb=/Users/fer,,nando"))
+        XCTAssertEqual(values(builder.arguments(), after: "-loadvm"), ["paralelo-suspendida"])
+    }
+
     func testVNCOnPrivateSocket() {
         for display in [DisplayMode.window, .headless] {
             let vnc = values(makeBuilder(display: display).arguments(), after: "-vnc")
@@ -305,5 +315,35 @@ final class VNCTests: XCTestCase {
         XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x0A, isISOKeyboard: true), 0x29)
         XCTAssertEqual(KeyMap.scancode(macKeyCode: 0x32, isISOKeyboard: true), 0x56)
         XCTAssertNil(KeyMap.scancode(macKeyCode: 0x3F)) // Fn
+    }
+}
+
+final class GuestAgentTests: XCTestCase {
+    func testAgentScriptIsASCIIAndMountsMacFolder() {
+        XCTAssertTrue(GuestTools.agentScript.unicodeScalars.allSatisfy(\.isASCII))
+        XCTAssertTrue(GuestTools.agentScript.contains(#"net use Z: \\10.0.2.4\qemu"#))
+        XCTAssertTrue(GuestTools.agentScript.contains("to-mac.txt"))
+        XCTAssertTrue(GuestTools.agentLauncher.contains(#""C:\ProgramData\Paralelo\paralelo-agent.ps1""#))
+    }
+
+    func testSetupInstallsAgentAndAllowsGuestSMB() {
+        XCTAssertTrue(GuestTools.setupScript.contains("paralelo-agent.vbs"))
+        XCTAssertTrue(GuestTools.setupScript.contains("EnableInsecureGuestLogons"))
+        XCTAssertGreaterThanOrEqual(GuestTools.version, 4)
+    }
+
+    func testSuspendedMarkerDrivesState() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bundle = VMBundle(url: dir, configuration: VMConfiguration(name: "w"))
+        let env = QEMUEnvironment(
+            qemuSystem: URL(fileURLWithPath: "/x"), qemuImg: URL(fileURLWithPath: "/x"), swtpm: nil,
+            firmwareCode: URL(fileURLWithPath: "/x"), firmwareVarsTemplate: URL(fileURLWithPath: "/x"))
+        let controller = VMController(bundle: bundle, environment: env)
+        XCTAssertEqual(controller.state(), .stopped)
+        try Data().write(to: bundle.suspendedMarkerURL)
+        XCTAssertEqual(controller.state(), .suspended)
+        XCTAssertThrowsError(try controller.restoreSnapshot(named: "limpio"))
     }
 }
