@@ -115,4 +115,6 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 
 ## Hoja de ruta
 
+- Arrastrar archivos de Windows al Mac (hoy solo del Mac a Windows).
+- Portapapeles de Coherence sin los avisos de Windows App (FreeRDP).
 
