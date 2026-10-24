@@ -44,6 +44,9 @@ public struct VMConfiguration: Codable, Equatable, Identifiable, Sendable {
         self.createdAt = createdAt
     }
 
+    /// Puerto del Mac (127.0.0.1) que se redirige al SSH (22) de Windows, el canal de control de Paralelo.
+    public var sshPort: Int { rdpPort + 1000 }
+
     /// Identificador corto usado para rutas de sockets (los sockets Unix en macOS admiten ~104 bytes).
     public var shortID: String {
         String(id.uuidString.prefix(8)).lowercased()
@@ -62,7 +65,7 @@ public struct VMConfiguration: Codable, Equatable, Identifiable, Sendable {
         guard diskSizeGB >= 32 else {
             throw VMError.invalidConfiguration("Windows 11 necesita al menos 32 GB de disco (se recomiendan 64+).")
         }
-        guard (1024...65535).contains(rdpPort) else {
+        guard (1024...64535).contains(rdpPort) else {
             throw VMError.invalidConfiguration("Puerto RDP fuera de rango.")
         }
     }

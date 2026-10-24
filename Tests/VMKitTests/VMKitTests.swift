@@ -51,7 +51,7 @@ final class QEMUCommandBuilderTests: XCTestCase {
 
     func testRDPForwardedOnlyToLocalhost() {
         let netdev = values(makeBuilder().arguments(), after: "-netdev")
-        XCTAssertEqual(netdev, ["user,id=net0,hostfwd=tcp:127.0.0.1:33891-:3389"])
+        XCTAssertEqual(netdev, ["user,id=net0,hostfwd=tcp:127.0.0.1:33891-:3389,hostfwd=tcp:127.0.0.1:34891-:22"])
     }
 
     func testTPMIsOptional() {
@@ -177,5 +177,89 @@ final class ModelTests: XCTestCase {
     func testParseWithoutSnapshots() throws {
         let snaps = try VMSnapshot.parse(qemuImgInfoJSON: Data(#"{"format":"qcow2"}"#.utf8))
         XCTAssertTrue(snaps.isEmpty)
+    }
+}
+
+final class GuestAppsTests: XCTestCase {
+    func testParseScannerOutput() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString()
+        let output = [
+            "WARN\tAdd-Type no disponible",
+            "APP\tWord\tMicrosoft.Office.WINWORD.EXE.15\tC:\\Office\\WINWORD.EXE\t\t\(png)",
+            "APP\tCalculadora\tMicrosoft.WindowsCalculator_8wekyb3d8bbwe!App\tC:\\Windows\\explorer.exe\tshell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App\t",
+            "APP\tword\tdup\tC:\\x.exe\t\t",
+            "APP\tSin programa\tid\t\t\t",
+            "basura",
+        ].joined(separator: "\r\n")
+        let apps = AppScanner.parse(output)
+        XCTAssertEqual(apps.map(\.name), ["Calculadora", "Word"])
+        XCTAssertTrue(apps[0].isStoreApp)
+        XCTAssertNil(apps[0].iconPNG)
+        XCTAssertFalse(apps[1].isStoreApp)
+        XCTAssertEqual(apps[1].iconPNG, Data([0x89, 0x50, 0x4E, 0x47]))
+        XCTAssertEqual(apps[1].makeRemoteApp().appUserModelID, "Microsoft.Office.WINWORD.EXE.15")
+    }
+
+    func testDiscoveredAppMatchesExistingApps() {
+        let found = DiscoveredApp(name: "Microsoft Edge", appUserModelID: "MSEdge",
+                                  program: #"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"#)
+        XCTAssertTrue(RemoteApp.defaults.contains { found.matches($0) })
+        XCTAssertFalse(found.matches(RemoteApp(name: "Otra", program: #"C:\otra.exe"#)))
+    }
+
+    func testScannerScriptIsASCII() {
+        XCTAssertTrue(AppScanner.script.unicodeScalars.allSatisfy(\.isASCII))
+        XCTAssertTrue(AppScanner.script.contains("shell:AppsFolder"))
+    }
+
+    func testRemoteAppDecodesOldConfigWithoutAUMID() throws {
+        let json = #"{"id":"ABCDEF12-0000-0000-0000-000000000000","name":"X","program":"C:\\x.exe","arguments":""}"#
+        let app = try JSONDecoder().decode(RemoteApp.self, from: Data(json.utf8))
+        XCTAssertNil(app.appUserModelID)
+    }
+
+    func testSSHPortAndArguments() {
+        var config = VMConfiguration(name: "w", rdpPort: 33890)
+        config.coherence.username = "Fernando Lagos"
+        XCTAssertEqual(config.sshPort, 34890)
+        let bundle = VMBundle(url: URL(fileURLWithPath: "/vms/x.paralelovm"), configuration: config)
+        let args = GuestShell(bundle: bundle).sshArguments(command: "cmd")
+        XCTAssertEqual(Array(args.suffix(4)), ["-l", "Fernando Lagos", "127.0.0.1", "cmd"])
+        XCTAssertTrue(args.contains("34890"))
+        XCTAssertTrue(args.contains("/vms/x.paralelovm/ssh/id_ed25519"))
+        XCTAssertTrue(args.contains("BatchMode=yes"))
+    }
+
+    func testSetupScriptAuthorizesParaleloKey() {
+        XCTAssertTrue(GuestTools.setupScript.contains("paralelo.pub"))
+        XCTAssertTrue(GuestTools.setupScript.contains("administrators_authorized_keys"))
+        XCTAssertTrue(GuestTools.setupScript.contains("OpenSSH.Server"))
+    }
+}
+
+final class ICNSTests: XCTestCase {
+    private func fakePNG(size: UInt32) -> Data {
+        var data = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13])
+        data.append(Data("IHDR".utf8))
+        for value in [size, size] {
+            data.append(contentsOf: [UInt8(value >> 24), UInt8(value >> 16 & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF)])
+        }
+        data.append(contentsOf: [8, 6, 0, 0, 0])
+        return data
+    }
+
+    func testWrapsPNGWithTypeForItsSize() throws {
+        let png = fakePNG(size: 256)
+        XCTAssertEqual(ICNS.pngSize(png)?.width, 256)
+        let icns = try XCTUnwrap(ICNS.make(png: png))
+        XCTAssertEqual(Array(icns.prefix(4)), Array("icns".utf8))
+        XCTAssertEqual(Array(icns[4..<8]), [0, 0, 0, UInt8(16 + png.count)])
+        XCTAssertEqual(Array(icns[8..<12]), Array("ic08".utf8))
+        XCTAssertEqual(icns.suffix(png.count), png)
+    }
+
+    func testRejectsNonStandardSizes() {
+        XCTAssertNil(ICNS.make(png: fakePNG(size: 48)))
+        XCTAssertNil(ICNS.make(png: Data("no es png".utf8)))
     }
 }

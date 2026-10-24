@@ -100,7 +100,7 @@ public final class VMController: @unchecked Sendable {
         try? fm.moveItem(at: bundle.logURL, to: previousLog)
 
         if !fm.fileExists(atPath: bundle.toolsISOURL.path) {
-            _ = try? GuestTools.buildISO(at: bundle.toolsISOURL)
+            _ = try? GuestTools.buildISO(at: bundle.toolsISOURL, publicKey: try? GuestShell.ensureKey(for: bundle))
         }
         let toolsISO = fm.fileExists(atPath: bundle.toolsISOURL.path) ? bundle.toolsISOURL : nil
 

@@ -4,8 +4,10 @@ import Foundation
 /// RDP y RemoteApp. Así no hace falta red ni carpetas compartidas para preparar Windows.
 public enum GuestTools {
     /// Súbelo cuando cambie el contenido de la ISO (las VMs existentes la regeneran al arrancar).
-    public static let version = 2
+    public static let version = 3
     public static let setupScriptName = "setup-windows.ps1"
+    /// Clave pública SSH de la VM; setup-windows.ps1 la autoriza para el canal de control.
+    public static let publicKeyName = "paralelo.pub"
 
     /// El instalador de Windows lee Autounattend.xml de cualquier unidad extraíble. Solo añade comandos:
     /// salta las comprobaciones de TPM/Secure Boot/RAM (no hay TPM con HVF) y permite configurar
@@ -71,6 +73,40 @@ powercfg /change standby-timeout-ac 0
 powercfg /change monitor-timeout-ac 0
 powercfg /hibernate off
 
+# 5. Canal de control de Paralelo (lista de apps e iconos): OpenSSH Server, solo con la clave de este Mac.
+#    El puerto solo se publica en 127.0.0.1 del Mac, no en tu red.
+$pub = Join-Path $PSScriptRoot 'paralelo.pub'
+if (Test-Path $pub) {
+    try {
+        $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' | Select-Object -First 1
+        if ($cap -and $cap.State -ne 'Installed') {
+            Write-Host 'Instalando OpenSSH Server (necesita internet; puede tardar unos minutos)...'
+            Add-WindowsCapability -Online -Name $cap.Name | Out-Null
+        }
+        Set-Service -Name sshd -StartupType Automatic
+        Start-Service sshd
+
+        $rule = Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue
+        if ($rule) {
+            $rule | Set-NetFirewallRule -Enabled True -Profile Any
+        } else {
+            New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Direction Inbound `
+                -Protocol TCP -LocalPort 22 -Action Allow -Profile Any | Out-Null
+        }
+
+        # Los administradores usan este archivo en lugar de ~\.ssh\authorized_keys; sshd exige que solo
+        # Administradores y SYSTEM puedan tocarlo.
+        $keys = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
+        $key = (Get-Content $pub -Raw).Trim()
+        $existing = if (Test-Path $keys) { Get-Content $keys } else { @() }
+        if ($existing -notcontains $key) { Add-Content -Path $keys -Value $key -Encoding ascii }
+        icacls $keys /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null
+        Write-Host "Canal de control activo. Usuario para Paralelo: $env:USERNAME" -ForegroundColor Green
+    } catch {
+        Write-Warning "No se pudo activar OpenSSH (sin él no hay lista de apps ni iconos): $($_.Exception.Message)"
+    }
+}
+
 Write-Host ''
 Write-Host 'Listo. Notas:' -ForegroundColor Green
 Write-Host ' - Tu usuario de Windows necesita contraseña (RDP no acepta PIN ni cuentas sin contraseña).'
@@ -80,7 +116,7 @@ Write-Host ' - Reinicia Windows para aplicar todos los cambios.'
 
     /// Crea la ISO con hdiutil (incluido en macOS). Devuelve false si hdiutil no está disponible.
     @discardableResult
-    public static func buildISO(at destination: URL) throws -> Bool {
+    public static func buildISO(at destination: URL, publicKey: String? = nil) throws -> Bool {
         let hdiutil = URL(fileURLWithPath: "/usr/bin/hdiutil")
         guard FileManager.default.isExecutableFile(atPath: hdiutil.path) else { return false }
         let staging = FileManager.default.temporaryDirectory
@@ -93,6 +129,9 @@ Write-Host ' - Reinicia Windows para aplicar todos los cambios.'
         var data = Data([0xEF, 0xBB, 0xBF])
         data.append(Data(text.utf8))
         try data.write(to: staging.appendingPathComponent(setupScriptName))
+        if let publicKey {
+            try (publicKey + "\n").write(to: staging.appendingPathComponent(publicKeyName), atomically: true, encoding: .utf8)
+        }
         try autounattend.write(to: staging.appendingPathComponent("Autounattend.xml"), atomically: true, encoding: .utf8)
 
         try? FileManager.default.removeItem(at: destination)

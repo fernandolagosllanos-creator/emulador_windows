@@ -56,14 +56,16 @@ Ya en el escritorio de Windows:
    powershell -ExecutionPolicy Bypass -File E:\setup-windows.ps1
    ```
 
-3. Reinicia Windows.
+3. Si te pide instalar OpenSSH Server, deja que termine (necesita internet). Al final muestra tu **usuario para Paralelo**: apúntalo.
+4. Reinicia Windows.
 
 ## 5. Dejarla lista
 
 1. Apaga Windows desde el menú Inicio o con **Apagar** en Paralelo.
 2. Pulsa **Expulsar ISO** para quitar el instalador.
 3. Crea un snapshot llamado `limpio`.
-4. En **Coherence**, escribe tu usuario de Windows y pulsa **Guardar**.
-5. Pulsa **Abrir** junto a una app, o **Crear apps en el Dock / Launchpad**.
+4. En **Coherence**, escribe tu usuario de Windows (el que mostró el script) y pulsa **Guardar**.
+5. Pulsa **Buscar apps instaladas en Windows…** y elige las apps que quieras.
+6. Pulsa **Abrir** junto a una app, o **Crear apps en el Dock / Launchpad**.
 
 A partir de aquí puedes usar **Iniciar sin ventana** y trabajar solo con Coherence o con **Escritorio**.

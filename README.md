@@ -16,9 +16,10 @@ No es un emulador escrito desde cero. Paralelo es una app nativa (SwiftUI) y un 
 | Ajustes de CPU, RAM y disco | Editables con la VM apagada. El disco solo crece |
 | Escritorio completo | RDP a `127.0.0.1:<puerto>`, con resolución dinámica y portapapeles |
 | **Coherence** | RDP RemoteApp: cada app de Windows se abre en su propia ventana del Mac |
-| Apps de Windows en el Dock | Mini-apps en `~/Applications/Paralelo Apps` que arrancan la VM sin ventana y abren la app |
+| Apps de Windows en el Dock | Mini-apps en `~/Applications/Paralelo Apps`, con el icono real de cada app, que arrancan la VM sin ventana y abren la app |
+| Lista automática de apps | Busca en Windows todo lo del menú Inicio (también apps de la Microsoft Store) con sus iconos, sin escribir rutas |
 | Menú en la barra superior | Acceso rápido a las apps de cada VM |
-| Herramientas de invitado | Unidad `PARALELO` en Windows con `setup-windows.ps1`, que activa RDP y RemoteApp, y `Autounattend.xml`, que salta las comprobaciones de TPM y permite instalar sin internet |
+| Herramientas de invitado | Unidad `PARALELO` en Windows con `setup-windows.ps1`, que activa RDP, RemoteApp y el canal de control (OpenSSH con una clave propia de la VM), y `Autounattend.xml`, que salta las comprobaciones de TPM y permite instalar sin internet |
 
 ## Requisitos
 
@@ -56,7 +57,9 @@ Consulta la guía paso a paso en [docs/instalar-windows.md](docs/instalar-window
 2. Pulsa **Abrir** junto a una app, o **Crear apps en el Dock / Launchpad**.
 3. Si la VM está apagada, Paralelo la arranca sin ventana, espera a que Windows acepte RDP y abre la app.
 
-Puedes añadir cualquier programa por su ruta en Windows (p. ej. `C:\Program Files\Mozilla Firefox\firefox.exe`).
+Pulsa **Buscar apps instaladas en Windows…** para elegir de la lista de apps del menú Inicio, con sus iconos. También puedes añadir cualquier programa por su ruta en Windows (p. ej. `C:\Program Files\Mozilla Firefox\firefox.exe`).
+
+La búsqueda usa un canal de control por SSH: `setup-windows.ps1` (versión 3 o posterior) instala OpenSSH Server en Windows y solo autoriza la clave de esa VM, que Paralelo crea en el Mac. El puerto (el de RDP + 1000) solo se publica en `127.0.0.1`. El usuario de Coherence debe ser una cuenta administradora de Windows: el script muestra el nombre exacto al terminar.
 
 ## CLI
 
@@ -71,6 +74,7 @@ paralelo desktop <vm>
 paralelo apps <vm>
 paralelo app <vm> <app>
 paralelo add-app <vm> <nombre> <ruta.exe>
+paralelo scan <vm> [--add todas|<nombre>]
 paralelo dock <vm>
 paralelo delete <vm>
 paralelo log <vm>
@@ -98,7 +102,7 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 
 - **Sin aceleración 3D.** No hay drivers gráficos 3D de QEMU para Windows ARM, así que los juegos y las apps 3D no van bien. Para juegos en Mac conviene usar CrossOver, Whisky o el Game Porting Toolkit de Apple.
 - **La consola de QEMU (`ramfb`) es de baja resolución.** Sirve para instalar Windows. Para el día a día usa **Escritorio** (RDP) o Coherence.
-- **Coherence muestra ventanas RDP.** Las apps no tienen icono propio en el Dock mientras están abiertas (el icono es el del cliente RDP), no hay arrastrar y soltar entre Mac y Windows, y puede haber algún parpadeo al mover ventanas.
+- **Coherence muestra ventanas RDP.** Mientras están abiertas, las apps muestran en el Dock el icono del cliente RDP, no el suyo, no hay arrastrar y soltar entre Mac y Windows, y puede haber algún parpadeo al mover ventanas.
 - **Coherence exige Windows Pro** (Home no incluye servidor RDP) y un usuario con contraseña.
 - **Sin TPM.** El TPM emulado (`tpm-tis-device`) hace fallar a QEMU con HVF, así que Paralelo no lo usa: Windows 11 se instala igual porque la unidad PARALELO incluye un `Autounattend.xml` que salta esa comprobación. BitLocker y Windows Hello con TPM no están disponibles.
 - **Sin carpetas compartidas por virtio-fs.** La carpeta de inicio del Mac se comparte a través de RDP.
@@ -107,6 +111,5 @@ Hardware virtual: máquina `virt` + HVF, `-cpu host`, disco NVMe, USB XHCI (tecl
 ## Hoja de ruta
 
 - Consola integrada en la ventana de la app (VNC/SPICE) en lugar de la ventana de QEMU.
-- Agente de invitado: lista automática de apps instaladas con sus iconos, y apagado o suspensión limpios.
-- Iconos reales en las apps del Dock.
+- Apagado o suspensión limpios a través del canal de control.
 - Carpetas compartidas con virtio-fs.

@@ -17,6 +17,24 @@ public struct VMBundle: Sendable {
     /// El número de versión fuerza a regenerar la ISO cuando cambia su contenido.
     public var toolsISOURL: URL { url.appendingPathComponent("paralelo-tools-v\(GuestTools.version).iso") }
     public var rdpDirectoryURL: URL { url.appendingPathComponent("rdp", isDirectory: true) }
+    /// Clave SSH privada de la VM; la pública (.pub) va en la ISO de herramientas.
+    public var sshKeyURL: URL { url.appendingPathComponent("ssh/id_ed25519") }
+    /// Iconos PNG de las apps de Coherence, uno por app (<id>.png).
+    public var iconsDirectoryURL: URL { url.appendingPathComponent("icons", isDirectory: true) }
+
+    public func iconURL(for app: RemoteApp) -> URL {
+        iconsDirectoryURL.appendingPathComponent("\(app.id.uuidString).png")
+    }
+
+    /// Icono de la app si ya se obtuvo de Windows.
+    public func icon(for app: RemoteApp) -> Data? {
+        try? Data(contentsOf: iconURL(for: app))
+    }
+
+    public func saveIcon(_ png: Data, for app: RemoteApp) throws {
+        try FileManager.default.createDirectory(at: iconsDirectoryURL, withIntermediateDirectories: true)
+        try png.write(to: iconURL(for: app), options: .atomic)
+    }
 
     public var runtime: RuntimePaths { RuntimePaths(shortID: configuration.shortID) }
 

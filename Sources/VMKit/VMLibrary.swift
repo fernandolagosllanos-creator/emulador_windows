@@ -73,7 +73,7 @@ public final class VMLibrary: @unchecked Sendable {
                 environment.firmwareVarsTemplate.path, bundle.efiVarsURL.path,
             ])
             try bundle.save()
-            _ = try? GuestTools.buildISO(at: bundle.toolsISOURL)
+            _ = try? GuestTools.buildISO(at: bundle.toolsISOURL, publicKey: try? GuestShell.ensureKey(for: bundle))
         } catch {
             try? fm.removeItem(at: url)
             throw error

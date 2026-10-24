@@ -21,6 +21,9 @@ struct VMDetailView: View {
                 }
                 .padding(20)
             }
+            .sheet(item: $model.discovery) { discovery in
+                DiscoverAppsSheet(discovery: discovery).environmentObject(model)
+            }
         }
     }
 
@@ -212,7 +215,7 @@ struct CoherenceSection: View {
             Divider()
             ForEach(config.coherence.apps) { app in
                 HStack {
-                    Image(systemName: "app.dashed")
+                    AppIconView(png: model.bundle(id)?.icon(for: app))
                     VStack(alignment: .leading) {
                         Text(app.name)
                         Text(app.program).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
@@ -233,7 +236,11 @@ struct CoherenceSection: View {
                 }
                 .disabled(newAppName.isEmpty || newAppPath.isEmpty)
             }
-            Button("Crear apps en el Dock / Launchpad") { model.buildDockApps(for: id) }
+            HStack {
+                Button("Buscar apps instaladas en Windows…") { model.discoverApps(in: id) }
+                Button("Crear apps en el Dock / Launchpad") { model.buildDockApps(for: id) }
+            }
+            .disabled(model.busy.contains(id))
         }
         .onAppear(perform: load)
         .onChange(of: config) { load() }

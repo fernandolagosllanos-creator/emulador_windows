@@ -80,8 +80,9 @@ public struct QEMUCommandBuilder {
             args += ["-device", "usb-storage,bus=xhci.0,drive=cd2,removable=on"]
         }
 
-        // Red NAT con el RDP de Windows (3389) publicado solo en 127.0.0.1 del Mac.
-        args += ["-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:\(config.rdpPort)-:3389"]
+        // Red NAT con el RDP (3389) y el SSH (22) de Windows publicados solo en 127.0.0.1 del Mac.
+        args += ["-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:\(config.rdpPort)-:3389"
+                    + ",hostfwd=tcp:127.0.0.1:\(config.sshPort)-:22"]
         args += ["-device", "virtio-net-pci,netdev=net0"]
 
         if let tpm = tpmSocket {
