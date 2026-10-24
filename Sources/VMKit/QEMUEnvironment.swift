@@ -37,16 +37,16 @@ public struct QEMUEnvironment: Sendable {
         }
 
         guard let qemu = findBinary("qemu-system-aarch64") else {
-            throw VMError.dependencyMissing("qemu-system-aarch64")
+            throw VMError.dependencyMissing("qemu-system-aarch64 (ejecuta scripts/install-deps.sh)")
         }
         guard let img = findBinary("qemu-img") else {
-            throw VMError.dependencyMissing("qemu-img")
+            throw VMError.dependencyMissing("qemu-img (ejecuta scripts/install-deps.sh)")
         }
         guard let code = findShared("edk2-aarch64-code.fd") else {
-            throw VMError.dependencyMissing("firmware edk2-aarch64-code.fd")
+            throw VMError.dependencyMissing("firmware edk2-aarch64-code.fd (ejecuta scripts/install-deps.sh)")
         }
         guard let vars = findShared("edk2-arm-vars.fd") else {
-            throw VMError.dependencyMissing("firmware edk2-arm-vars.fd")
+            throw VMError.dependencyMissing("firmware edk2-arm-vars.fd (ejecuta scripts/install-deps.sh)")
         }
         return QEMUEnvironment(
             qemuSystem: qemu, qemuImg: img, swtpm: findBinary("swtpm"),

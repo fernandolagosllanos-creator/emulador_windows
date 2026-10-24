@@ -103,7 +103,7 @@ public enum VMError: LocalizedError, Equatable {
         switch self {
         case .invalidConfiguration(let m): return "Configuración no válida: \(m)"
         case .notFound(let m): return "No encontrado: \(m)"
-        case .dependencyMissing(let m): return "Falta una dependencia: \(m). Ejecuta scripts/install-deps.sh."
+        case .dependencyMissing(let m): return "Falta una dependencia: \(m)."
         case .alreadyRunning: return "La máquina virtual ya está en ejecución."
         case .notRunning: return "La máquina virtual no está en ejecución."
         case .commandFailed(let m): return "Falló un comando: \(m)"

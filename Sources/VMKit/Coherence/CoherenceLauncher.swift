@@ -51,7 +51,7 @@ public struct CoherenceLauncher {
     static let windowsAppBundleID = "com.microsoft.rdc.macos"
 
     private func openWithFreeRDP(app: RemoteApp?) throws {
-        guard let binary = Self.findFreeRDP() else { throw VMError.dependencyMissing("FreeRDP (brew install freerdp)") }
+        guard let binary = Self.findFreeRDP(remoteApp: app != nil) else { throw VMError.dependencyMissing("FreeRDP (brew install freerdp)") }
         let config = controller.bundle.configuration
         var args = Self.freeRDPArguments(configuration: config, app: app)
         if let password, !password.isEmpty { args.append("/p:\(password)") }
@@ -73,8 +73,11 @@ public struct CoherenceLauncher {
         return args
     }
 
-    static func findFreeRDP() -> URL? {
-        let names = ["sdl-freerdp3", "xfreerdp3", "sdl-freerdp", "xfreerdp"]
+    /// Para RemoteApp se prefiere el cliente X11 (xfreerdp, necesita XQuartz): el cliente SDL
+    /// no implementa bien las ventanas sueltas de RemoteApp.
+    static func findFreeRDP(remoteApp: Bool) -> URL? {
+        let x11 = ["xfreerdp3", "xfreerdp"], sdl = ["sdl-freerdp3", "sdl-freerdp"]
+        let names = remoteApp ? x11 + sdl : sdl + x11
         let dirs = ["/opt/homebrew/bin", "/usr/local/bin"]
         for dir in dirs {
             for name in names {
