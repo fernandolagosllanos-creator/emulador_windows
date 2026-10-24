@@ -38,13 +38,17 @@ public struct CoherenceLauncher {
         try FileManager.default.createDirectory(at: bundle.rdpDirectoryURL, withIntermediateDirectories: true)
         let url = bundle.rdpDirectoryURL.appendingPathComponent("\(app?.fileName ?? "Escritorio").rdp")
         try RDPFile(configuration: bundle.configuration, app: app).write(to: url)
+        // Siempre por bundle id: "Windows App" y el antiguo "Microsoft Remote Desktop" comparten
+        // com.microsoft.rdc.macos. Nunca se usa la app asociada a .rdp, porque puede ser otra
+        // (p. ej. Parallels la registra y abre el archivo dentro de su propia VM).
         let open = URL(fileURLWithPath: "/usr/bin/open")
-        let result = try ProcessRunner.run(open, ["-a", "Windows App", url.path])
-        if result.status != 0 {
-            // Versiones antiguas se llaman "Microsoft Remote Desktop"; `open` sin -a usa la app asociada a .rdp.
-            try ProcessRunner.check(open, [url.path])
+        let result = try ProcessRunner.run(open, ["-b", Self.windowsAppBundleID, url.path])
+        guard result.status == 0 else {
+            throw VMError.dependencyMissing("Windows App de Microsoft (instálala desde la App Store) o elige FreeRDP como cliente")
         }
     }
+
+    static let windowsAppBundleID = "com.microsoft.rdc.macos"
 
     private func openWithFreeRDP(app: RemoteApp?) throws {
         guard let binary = Self.findFreeRDP() else { throw VMError.dependencyMissing("FreeRDP (brew install freerdp)") }
