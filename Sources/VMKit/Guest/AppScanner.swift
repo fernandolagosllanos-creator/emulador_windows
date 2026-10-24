@@ -212,6 +212,8 @@ foreach ($item in $items) {
         $program = Join-Path $knownFolders[$Matches[1].ToUpper()] $Matches[2]
     } elseif ($appId -match '^[A-Za-z]:\\.+\.exe$') {
         $program = $appId
+    } elseif ($appId -eq 'Microsoft.Windows.Explorer') {
+        $program = $explorer
     } elseif ($appId -match '!') {
         $program = $explorer
         $arguments = "shell:AppsFolder\$appId"
