@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versión de Swift
+        run: swift --version
+      - name: Compilar
+        run: swift build
+      - name: Pruebas
+        run: swift test
+      - name: Empaquetar .app
+        run: scripts/build-app.sh
